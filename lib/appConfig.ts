@@ -86,6 +86,10 @@ export function loadSportsUrl(fallbackValue: string): Promise<string> {
   return getAppSettingValue('sports_url', fallbackValue);
 }
 
+export function loadTruyenUrl(fallbackValue: string): Promise<string> {
+  return getAppSettingValue('truyen_url', fallbackValue);
+}
+
 export function loadRo1Url(fallbackValue: string): Promise<string> {
   return getAppSettingValue('ro1_url', fallbackValue);
 }

@@ -84,7 +84,7 @@ const LOGOS = {
     ganhPhim2: 'https://img.upanhnhanh.com/59d8b08a46a15c8b4e1ca6f766fa8afa',
     onflix: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775905493/logoonflix_bg8k3v.png',
     motchilltv: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775905558/logo_mx7bjo.png',
-    ganh88: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775745095/ganhgame_g8zdu4.png',
+    ganhTruyen: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1780205428/pZCZJ-removebg-preview_zfcdpg.png',
     thanhGanhManga: 'https://img.upanhnhanh.com/c1b2b67d909a03f92e233092ed4b56fd',
     ganhTheThao: 'https://img.upanhnhanh.com/7f20bbdd8347a97d368892053626bff2',
     ganh3d: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775824346/ganh3d-removebg-preview_x3cw8x.png',
@@ -92,7 +92,7 @@ const LOGOS = {
 
 const BACKGROUNDS = {
     ganhPhim: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&h=500&fit=crop',
-    ganh88: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775745095/background_ganhgame_bowmpp.jpg',
+    ganhTruyen: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775745095/background_ganhgame_bowmpp.jpg',
     thanhGanhManga: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775825068/backgrond_ganhmanga_wi9yd4.png',
     ganhTheThao: 'https://play-lh.googleusercontent.com/T6oxu6MrpMrn0i8YftSZdl7LMG1YOWPZ6T8k7ly4ElJ0oWKGTNSzBcIrEyFmu4Lqk38=w526-h296-rw',
     ganh3d: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775825490/background_ganh3d_gcgb3g.jpg',
@@ -325,12 +325,11 @@ export default function IntroScreen() {
                                 />
 
                                 <FeatureCard
-                                    title={<Image source={{ uri: LOGOS.ganh88 }} style={styles.cardTitleLogo} contentFit="contain" contentPosition="left" />}
-                                    subtitle={<Text style={styles.featureSubtitle}>GAME GIẢI TRÍ | KHÔNG NÊN CỜ BẠC</Text>}
-                                    description="Khu giải trí Ganh88 với giao diện riêng và nền hình nổi bật trên mobile."
-                                    action="Khám phá"
-                                    backgroundImage={BACKGROUNDS.ganh88}
-                                    onPress={() => router.push('/ganh88' as any)}
+                                    title={<Image source={{ uri: LOGOS.ganhTruyen }} style={styles.cardTitleLogo} contentFit="contain" contentPosition="left" />}
+                                    description="Khu giải trí GanhTruyen với giao diện riêng và nền hình nổi bật trên mobile."
+                                    action="Xem ngay"
+                                    backgroundImage={BACKGROUNDS.ganhTruyen}
+                                    onPress={() => router.push('/ganhtruyen' as any)}
                                 />
 
                                 <FeatureCard
