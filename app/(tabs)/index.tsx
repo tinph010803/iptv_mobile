@@ -554,7 +554,8 @@ export default function HomeScreen() {
 
       <View style={styles.header}>
         <View style={styles.logoContainer}>
-          <Image source={{ uri: 'https://i.ibb.co/dJ7CJ8Pf/logo-ganh-removebg-preview.png' }} style={styles.logo} />
+          {/* <Image source={{ uri: 'https://i.ibb.co/dJ7CJ8Pf/logo-ganh-removebg-preview.png' }} style={styles.logo} /> */}
+           <Image source={{ uri: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1786077846/upflix-removebg-preview_dsnd1z.png' }} style={styles.logo} />
           <View>
             <Text style={styles.logoTitle}>Gánh Phim</Text>
             <Text style={styles.logoSubtitle}>Phim hay cả gánh</Text>
@@ -704,8 +705,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   logo: {
-    width: 34,
-    height: 34,
+    width: 54,
+    height: 54,
     resizeMode: 'contain',
   },
   logoTitle: {

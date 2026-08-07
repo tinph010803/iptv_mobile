@@ -81,7 +81,9 @@ function FeatureCard({
 const LOGOS = {
     ganhGiaiTri: 'https://img.upanhnhanh.com/d8d7ada8c26081ef68c5f6af04d61982',
     ganhPhim: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775885578/ganhcinema_lwwhwy.png',
-    ganhPhim2: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775885578/ganhcinema_lwwhwy.png',
+    // ganhPhim: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1786077846/upflix-removebg-preview_dsnd1z.png',
+    // ganhPhim2: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775885578/ganhcinema_lwwhwy.png',
+    ganhPhim2: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1786077846/upflix-removebg-preview_dsnd1z.png',
     onflix: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775905493/logoonflix_bg8k3v.png',
     motchilltv: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775905558/logo_mx7bjo.png',
     ganhTruyen: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1780205428/pZCZJ-removebg-preview_zfcdpg.png',
@@ -125,7 +127,7 @@ const GANH3D_PROFILES = [
 const CINEMA_PROFILES = [
     {
         id: 'ganh-phim',
-        name: 'Gánh Phim',
+        name: 'Upflix',
         logo: LOGOS.ganhPhim2,
         active: true,
     },
