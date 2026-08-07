@@ -2,10 +2,8 @@ import { supabase } from './supabase';
 
 const APP_SETTINGS_TABLE = 'app_settings';
 
-export const RO1_DEFAULT_URL = 'https://cobephim.com';
-export const RO2_DEFAULT_URL = 'https://rophim.stream';
-export const SPORTS_DEFAULT_URL = 'https://demnaylive.my/';
-export const ONFLIX_DEFAULT_URL = 'https://520-1314.onflix.run/';
+export const SPORTS_DEFAULT_URL = 'https://eascore.io/';
+export const ONFLIX_DEFAULT_URL = 'https://onflixstatus.com/';
 export const ROPHIM_API_DEFAULT_URL = 'https://cobephim.com/baseapi/api/v1';
 
 export function normalizeHttpUrl(value: string): string | null {

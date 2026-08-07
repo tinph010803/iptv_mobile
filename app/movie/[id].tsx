@@ -86,6 +86,7 @@ function extractMachineBaseName(serverName: string): string {
 function detectAudioType(serverName: string): 'vietsub' | 'thuyet-minh' | 'default' {
   const plain = stripProviderTag(serverName).toLowerCase();
   if (plain.includes('thuyết minh') || plain.includes('thuyet minh')) return 'thuyet-minh';
+  if (plain.includes('lồng tiếng') || plain.includes('long tieng')) return 'thuyet-minh';
   if (plain.includes('vietsub')) return 'vietsub';
   return 'default';
 }
@@ -93,6 +94,7 @@ function detectAudioType(serverName: string): 'vietsub' | 'thuyet-minh' | 'defau
 type ServerMachine = {
   key: string;
   label: string;
+  displayName: string;
   provider: 'OP' | 'KK' | 'NC' | 'HT';
   serverIndexes: number[];
 };
@@ -138,6 +140,7 @@ export default function MovieDetailScreen() {
     episodes: string[];
   } | null>(null);
   const [htServers, setHtServers] = useState<any[]>([]);
+  const didInitSourceSelection = useRef(false);
 
   useEffect(() => {
     if (!movie?.slug) return;
@@ -197,13 +200,28 @@ export default function MovieDetailScreen() {
 
     const firstGenreSlug = toSlug(movie.genres?.[0] ?? ''); if (!firstGenreSlug) { setSuggestedLoading(false); return; }
 
-    fetch(`https://ophim1.com/v1/api/the-loai/${firstGenreSlug}?sort_field=year&sort_type=desc&limit=20`)
+    fetch(`https://ophim1.com/v1/api/the-loai/${firstGenreSlug}?sort_field=modified.time&sort_type=desc&limit=20`)
       .then(r => r.json())
       .then(json => {
         const items: any[] = json?.data?.items ?? [];
+        const parseModifiedTime = (value: any): number => {
+          const raw = value?.modified?.time ?? value?.modified?.date ?? value?.updated_at;
+          if (typeof raw === 'number' && Number.isFinite(raw)) {
+            return raw > 1e12 ? raw : raw * 1000;
+          }
+          if (typeof raw === 'string') {
+            const asNum = Number(raw);
+            if (Number.isFinite(asNum)) {
+              return asNum > 1e12 ? asNum : asNum * 1000;
+            }
+            const parsed = Date.parse(raw);
+            if (Number.isFinite(parsed)) return parsed;
+          }
+          return 0;
+        };
         const filtered = items
           .filter(m => m.slug !== (movie.slug || id))
-          .sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
+          .sort((a, b) => parseModifiedTime(b) - parseModifiedTime(a))
           .slice(0, 9);
         setSuggested(filtered.map((item: any) => ({
           ...item,
@@ -255,10 +273,7 @@ export default function MovieDetailScreen() {
   }, [movie]);
 
   useEffect(() => {
-    setSelectedServerIdx(0);
-    setSelectedMachineIdx(0);
-    setSelectedEpisodeChunkIdx(0);
-    setServerDropdownOpen(false);
+    didInitSourceSelection.current = false;
   }, [movie?.id]);
 
   useEffect(() => {
@@ -269,6 +284,31 @@ export default function MovieDetailScreen() {
       setSelectedServerIdx(serverMachines[htIdx].serverIndexes[0] ?? 0);
     }
   }, [movie?.slug]);
+
+  useEffect(() => {
+    if (!movie || serverMachines.length === 0) return;
+
+    if (didInitSourceSelection.current) return;
+
+    const preferredMachineIdx = (() => {
+      const kkIdx = serverMachines.findIndex((machine) => machine.provider === 'KK');
+      if (kkIdx !== -1) return kkIdx;
+
+      const multiSourceIdx = serverMachines.findIndex((machine) => machine.serverIndexes.length > 1);
+      if (multiSourceIdx !== -1) return multiSourceIdx;
+
+      const opIdx = serverMachines.findIndex((machine) => machine.provider === 'OP');
+      if (opIdx !== -1) return opIdx;
+
+      return 0;
+    })();
+
+    setSelectedMachineIdx(preferredMachineIdx);
+    setSelectedServerIdx(serverMachines[preferredMachineIdx]?.serverIndexes[0] ?? 0);
+    setSelectedEpisodeChunkIdx(0);
+    setServerDropdownOpen(false);
+    didInitSourceSelection.current = true;
+  }, [movie, id, serverMachines]);
 
   useEffect(() => {
     if (movie?.slug !== 'tho-oi' && movie?.slug !== 'cuu-2026') return;
@@ -334,6 +374,7 @@ export default function MovieDetailScreen() {
       key,
       provider: value.provider,
       label: `Máy chủ ${idx + 1} (${value.provider})`,
+      displayName: extractMachineBaseName(movieServers[value.serverIndexes[0]]?.name || `Server ${idx + 1}`),
       serverIndexes: value.serverIndexes,
     }));
   }, [movieServers]);
@@ -563,7 +604,10 @@ export default function MovieDetailScreen() {
   const firstEpisodeName = movie?.episodes_data?.[0]?.name || '';
 
   const selectedMachine = serverMachines[selectedMachineIdx] ?? serverMachines[0];
-  const variantIndexes = selectedMachine?.serverIndexes ?? [0];
+  const providerVariantIndexes = serverMachines
+    .filter((machine) => machine.provider === (selectedMachine?.provider ?? serverMachines[0]?.provider))
+    .flatMap((machine) => machine.serverIndexes);
+  const variantIndexes = providerVariantIndexes.length > 0 ? providerVariantIndexes : (selectedMachine?.serverIndexes ?? [0]);
   const effectiveServerIdx =
     variantIndexes.includes(selectedServerIdx) ? selectedServerIdx : (variantIndexes[0] ?? 0);
   const currentEps = movieServers[effectiveServerIdx]?.episodes ?? [];

@@ -135,6 +135,7 @@ background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 22%,transpar
 #pb-buf{background:rgba(255,255,255,.35);width:0%}
 #pb-fill{background:#e50914;width:0%}
 #pb-thumb{position:absolute;top:50%;left:0%;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;background:#e50914;pointer-events:none;box-shadow:0 0 4px rgba(229,9,20,.55)}
+#ad-dot{position:absolute;top:50%;left:0%;transform:translate(-50%,-50%);width:10px;height:10px;border-radius:50%;background:#32d74b;box-shadow:0 0 0 3px rgba(50,215,75,.22);pointer-events:none;display:none;z-index:2}
 #prog:active #pb-thumb,#prog.drag #pb-thumb{transform:translate(-50%,-50%) scale(1.4)}
 /* Time row */
 #timerow{display:flex;align-items:center;width:100%;padding:2px 0 5px}
@@ -152,6 +153,11 @@ background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 22%,transpar
 #btn-skip{position:absolute;bottom:105px;right:48px;z-index:50;background:transparent;border:1.5px solid rgba(255,255,255,.6);color:#fff;font-size:12px;font-weight:600;padding:6px 16px;border-radius:6px;cursor:pointer;display:none;pointer-events:all}
 #btn-skip.show{display:block}
 #btn-skip:active{opacity:.7}
+/* KK ad skip */
+#btn-ad{position:absolute;bottom:105px;right:48px;z-index:51;background:rgba(0,0,0,.72);border:1.5px solid rgba(50,215,75,.85);color:#fff;font-size:12px;font-weight:600;padding:6px 14px;border-radius:6px;cursor:pointer;display:none;pointer-events:all}
+#btn-ad.show{display:block}
+#btn-ad.ready{background:#32d74b;border-color:#32d74b;color:#081b0d}
+#btn-ad:active{opacity:.82}
 /* Lock2 (unlock button, always on top outside #ov) */
 #btn-lock2{position:absolute;top:14px;left:54px;z-index:200;background:none;border:none;color:#fff;width:42px;height:42px;border-radius:50%;display:none;align-items:center;justify-content:center;cursor:pointer;pointer-events:all}
 #btn-lock2:active{background:rgba(255,255,255,.15)}
@@ -224,6 +230,7 @@ background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 22%,transpar
   <div class="dtfb-label"></div>
 </div>
   <button id="btn-skip">B&#x1ECF; qua gi&#x1EDB;i thi&#x1EC7;u</button>
+  <button id="btn-ad"></button>
   <button id="btn-lock2" style="display:none">
     <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2z"/></svg>
   </button>
@@ -270,6 +277,7 @@ background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 22%,transpar
           <div class="pb" id="pb-buf"></div>
           <div class="pb" id="pb-fill"></div>
           <div id="pb-thumb"></div>
+          <div id="ad-dot"></div>
         </div>
         <div id="timerow">
           <span id="t-cur">0:00</span><div id="t-sp"></div><span id="t-dur">0:00</span>
@@ -341,6 +349,8 @@ var v=document.getElementById('v'),
   smMain=document.getElementById('sm-main'),
   smSub=document.getElementById('sm-sub'),
   skipBtn=document.getElementById('btn-skip'),
+  adBtn=document.getElementById('btn-ad'),
+  adDot=document.getElementById('ad-dot'),
   lockBar=document.getElementById('lock-bar'),
   ratioLbl=document.getElementById('ratio-lbl'),
   spdLbl=null,qlLbl=null;
@@ -348,6 +358,7 @@ var v=document.getElementById('v'),
 document.getElementById('top-title').textContent=EP?TT+' | '+(EP.trim()!==''&&!isNaN(Number(EP.trim()))?'T\u1eadp '+EP:EP):TT;
 
 var hls=null,dur=0,quals=[],curQ=-1,curSpd=1,hideTimer=null,ctrlOn=false,locked=false,skipExpired=false,resumeAt=INIT_TIME||0;
+var AD_START=14*60+55,AD_READY=15*60,AD_SKIP=15*60+30;
 var SPDS=[0.25,0.5,0.75,1,1.25,1.5,2];
 var RATIOS=['contain','cover','fill'];
 var RATIO_LABELS=['T\u1ef7 l\u1ec7','\u0110\u1ea7y m\u00e0n h\u00ecnh','K\u00e9o gi\u00e3n'];
@@ -369,6 +380,55 @@ function epLabel(n){var t=(n||'').trim();return!isNaN(Number(t))&&t!==''&&parseI
 function fmt(s){if(!s||isNaN(s))return'0:00';var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=Math.floor(s%60);return h>0?h+':'+p(m)+':'+p(sc):m+':'+p(sc);}
 function p(n){return n<10?'0'+n:''+n;}
 function spdLabel(s){return s+'x';}
+function curServerName(){return SERVERS[CUR_SRV]?SERVERS[CUR_SRV].name:'';}
+function isKKServer(){return /\[KK\]/i.test(curServerName());}
+function syncAdMarker(){
+  if(!adDot)return;
+  if(!isKKServer()||!dur||dur<AD_READY){
+    adDot.style.display='none';
+    return;
+  }
+  adDot.style.display='block';
+  adDot.style.left=((AD_READY/dur)*100).toFixed(2)+'%';
+}
+function hideAdSkip(){
+  if(!adBtn)return;
+  adBtn.classList.remove('show','ready');
+  adBtn.textContent='';
+}
+function syncAdSkip(){
+  if(!adBtn)return;
+  if(!isKKServer()||!dur){
+    hideAdSkip();
+    return;
+  }
+  if(v.currentTime>=AD_SKIP){
+    hideAdSkip();
+    return;
+  }
+  if(v.currentTime>=AD_READY){
+    adBtn.textContent='B\u1ecf qua qu\u1ea3ng c\u00e1o';
+    adBtn.classList.add('show','ready');
+    return;
+  }
+  if(v.currentTime>=AD_START){
+    var remain=Math.ceil(AD_READY-v.currentTime);
+    if(remain>0){
+      adBtn.textContent='Qu\u1ea3ng c\u00e1o s\u1ebd xu\u1ea5t hi\u1ec7n sau '+remain+'s';
+      adBtn.classList.add('show');
+      adBtn.classList.remove('ready');
+      return;
+    }
+    adBtn.textContent='B\u1ecf qua qu\u1ea3ng c\u00e1o';
+    adBtn.classList.add('show','ready');
+    return;
+  }
+  hideAdSkip();
+}
+function syncAdUi(){
+  syncAdMarker();
+  syncAdSkip();
+}
 
 // HLS
 
@@ -414,6 +474,7 @@ v.addEventListener('timeupdate',function(){
   pbFill.style.width=pct+'%';pbThumb.style.left=pct+'%';
   tCur.textContent=fmt(v.currentTime);
   if(v.buffered.length>0)pbBuf.style.width=(v.buffered.end(v.buffered.length-1)/dur*100).toFixed(2)+'%';
+  syncAdUi();
   if(!skipExpired&&v.currentTime>0&&v.currentTime<=15){skipBtn.classList.add('show');}
   else{if(v.currentTime>15)skipExpired=true;skipBtn.classList.remove('show');}
 });
@@ -426,11 +487,19 @@ v.addEventListener('loadedmetadata',function(){
     v.currentTime=0;
   }
   resumeAt=0;
+  syncAdUi();
 });
-v.addEventListener('durationchange',function(){dur=v.duration;tDur.textContent=fmt(dur);});
+v.addEventListener('durationchange',function(){dur=v.duration;tDur.textContent=fmt(dur);syncAdUi();});
 
 // Skip intro
 skipBtn.addEventListener('click',function(e){e.stopPropagation();skipExpired=true;skipBtn.classList.remove('show');v.currentTime=90;});
+
+adBtn.addEventListener('click',function(e){
+  e.stopPropagation();
+  if(!adBtn.classList.contains('ready')) return;
+  v.currentTime=Math.min(AD_SKIP,dur||AD_SKIP);
+  hideAdSkip();
+});
 
 // Progress reporting every 10s
 setInterval(function(){
@@ -657,6 +726,8 @@ function switchEp(url,epName,srvIdx,resume){
   dur=0;
   skipExpired=false;       
   skipBtn.classList.remove('show');
+  hideAdSkip();
+  if(adDot)adDot.style.display='none';
   tCur.textContent='0:00';
   tDur.textContent='0:00';
   pbFill.style.width='0%';

@@ -81,12 +81,12 @@ function FeatureCard({
 const LOGOS = {
     ganhGiaiTri: 'https://img.upanhnhanh.com/d8d7ada8c26081ef68c5f6af04d61982',
     ganhPhim: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775885578/ganhcinema_lwwhwy.png',
-    ganhPhim2: 'https://img.upanhnhanh.com/59d8b08a46a15c8b4e1ca6f766fa8afa',
+    ganhPhim2: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775885578/ganhcinema_lwwhwy.png',
     onflix: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775905493/logoonflix_bg8k3v.png',
     motchilltv: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775905558/logo_mx7bjo.png',
     ganhTruyen: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1780205428/pZCZJ-removebg-preview_zfcdpg.png',
     thanhGanhManga: 'https://img.upanhnhanh.com/c1b2b67d909a03f92e233092ed4b56fd',
-    ganhTheThao: 'https://img.upanhnhanh.com/7f20bbdd8347a97d368892053626bff2',
+    ganhTheThao: 'https://eascore.io/wp-content/uploads/2026/05/cropped-logo-socolive-tv.png',
     ganh3d: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775824346/ganh3d-removebg-preview_x3cw8x.png',
 };
 
@@ -126,18 +126,6 @@ const CINEMA_PROFILES = [
     {
         id: 'ganh-phim',
         name: 'Gánh Phim',
-        logo: LOGOS.ganhPhim2,
-        active: true,
-    },
-    {
-        id: 'ro-1',
-        name: 'Rổ 1',
-        logo: LOGOS.ganhPhim2,
-        active: true,
-    },
-    {
-        id: 'ro-2',
-        name: 'Rổ 2',
         logo: LOGOS.ganhPhim2,
         active: true,
     },
@@ -199,19 +187,6 @@ export default function IntroScreen() {
             return;
         }
 
-        if (profileId === 'ro-1') {
-            router.push({
-                pathname: '/ro-1' as any,
-            });
-            return;
-        }
-
-        if (profileId === 'ro-2') {
-            router.push({
-                pathname: '/ro-2' as any,
-            });
-            return;
-        }
 
         if (profileId === 'onflix') {
             router.push('/onflix' as any);

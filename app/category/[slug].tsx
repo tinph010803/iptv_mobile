@@ -225,7 +225,7 @@ export default function CategoryScreen() {
           country: topicFilter.country_code,
           genre: topicFilter.genre_ids,
           type: topicFilter.type,
-          sort: topicFilter.sort_by,
+          sort: 'modified.time',
         });
         setMovies(movies);
         setTotalPages(1);

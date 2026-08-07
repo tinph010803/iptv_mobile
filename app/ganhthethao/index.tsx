@@ -7,7 +7,7 @@ import { Image } from 'expo-image';
 import { ChevronLeft, RefreshCw, X } from 'lucide-react-native';
 import { loadSportsUrl } from '@/lib/appConfig';
 
-const SPORTS_URL = 'https://demnaylive.my/';
+const SPORTS_URL = 'https://eascore.io/';
 const SPORTS_LOGO = 'https://img.upanhnhanh.com/7f20bbdd8347a97d368892053626bff2';
 const OPEN_IN_SAME_WEBVIEW_SCRIPT = `
 (() => {

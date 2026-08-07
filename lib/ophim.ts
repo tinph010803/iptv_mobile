@@ -1,9 +1,12 @@
 import { Movie } from '@/types/movie';
 
 const OPHIM_BASE_URL = 'https://ophim1.com';
+const KK_BASE_URL = 'https://phimapi.com';
 const OPHIM_IMAGE_BASE_URL = 'https://img.ophim.live';
 const NGUONC_BASE_URL = 'https://phim.nguonc.com/api';
 const HOME_CACHE_TTL = 5 * 60 * 1000;
+const DEFAULT_SORT_FIELD = 'modified.time';
+const DEFAULT_SORT_TYPE = 'desc';
 
 let homeCache: { data: Movie[]; expiresAt: number } | null = null;
 let homePendingPromise: Promise<Movie[]> | null = null;
@@ -14,6 +17,12 @@ const EXTERNAL_SOURCE_TIMEOUT_MS = 6000;
 
 function normalizeDetailCacheKey(value: string): string {
   return value.trim();
+}
+
+function normalizeImageBaseUrl(value?: string): string | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, '');
 }
 
 function cacheDetailMovie(movie: Movie): void {
@@ -37,6 +46,89 @@ export function getCachedMovieBySlug(slug: string): Movie | null {
   const key = normalizeDetailCacheKey(String(slug || ''));
   if (!key) return null;
   return detailCache.get(key) ?? null;
+}
+
+function dedupeMovies(movies: Movie[]): Movie[] {
+  const seen = new Set<string>();
+
+  return movies.filter((movie) => {
+    const key = normalizeDetailCacheKey(String(movie.slug || movie.id || ''));
+    if (!key || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function hasPlayableData(movie: Movie | null | undefined): boolean {
+  if (!movie) return false;
+
+  return (
+    (movie.servers?.length ?? 0) > 0 ||
+    (movie.episodes_data?.length ?? 0) > 0 ||
+    !!movie.stream_url
+  );
+}
+
+function needsFreshDetail(movie: Movie | null | undefined): boolean {
+  if (!movie) return false;
+
+  const serverCount = movie.servers?.length ?? 0;
+  const langText = normalizeCompareText(movie.lang || '');
+  const hasLtHint = (movie.lang_key?.includes('lt') ?? false) || /longtieng|dubbed/.test(langText);
+  const hasTmHint = (movie.lang_key?.includes('tm') ?? false) || /thuyetminh/.test(langText);
+  const hasMultiAudioHint = hasLtHint || hasTmHint || (movie.lang_key?.length ?? 0) > 1 || /\+/.test(String(movie.lang || ''));
+
+  if (!hasMultiAudioHint) {
+    return false;
+  }
+
+  return serverCount < 2;
+}
+
+function mergeMovieDetails(primary: Movie, secondary: Movie): Movie {
+  if (!hasPlayableData(secondary)) {
+    return primary;
+  }
+
+  const mergedServers = [...(primary.servers || [])];
+  const seenServers = new Set(
+    mergedServers.map((server) => `${normalizeCompareText(server.name)}|${server.episodes?.[0]?.link_embed || ''}|${server.episodes?.[0]?.link_m3u8 || ''}`),
+  );
+
+  for (const server of secondary.servers || []) {
+    const serverKey = `${normalizeCompareText(server.name)}|${server.episodes?.[0]?.link_embed || ''}|${server.episodes?.[0]?.link_m3u8 || ''}`;
+    if (seenServers.has(serverKey)) {
+      continue;
+    }
+
+    mergedServers.push(server);
+    seenServers.add(serverKey);
+  }
+
+  const episodesData = mergedServers[0]?.episodes || primary.episodes_data || secondary.episodes_data || [];
+  const streamUrl = primary.stream_url || secondary.stream_url || episodesData[0]?.link_m3u8 || episodesData[0]?.link_embed || '';
+
+  return {
+    ...primary,
+    title: primary.title || secondary.title,
+    title_en: primary.title_en || secondary.title_en,
+    description: primary.description || secondary.description,
+    thumb_url: primary.thumb_url || secondary.thumb_url,
+    poster_url: primary.poster_url || secondary.poster_url,
+    year: primary.year || secondary.year,
+    duration: primary.duration || secondary.duration,
+    duration_text: primary.duration_text || secondary.duration_text,
+    quality: primary.quality || secondary.quality,
+    lang: primary.lang || secondary.lang,
+    servers: mergedServers,
+    episodes_data: episodesData,
+    stream_url: streamUrl,
+    current_episode: Math.max(primary.current_episode || 0, secondary.current_episode || 0, 1),
+    episodes: Math.max(primary.episodes || 0, secondary.episodes || 0, primary.current_episode || 0, secondary.current_episode || 0, 1),
+  };
 }
 
 type OPhimResponse = {
@@ -108,7 +200,7 @@ type NguoncSearchMovie = {
   language?: string;
 };
 
-function normalizeImageUrl(url?: string): string {
+function normalizeImageUrl(url?: string, imageBaseUrl = OPHIM_IMAGE_BASE_URL): string {
   if (!url || url.trim() === '') {
     return 'https://images.pexels.com/photos/7991579/pexels-photo-7991579.jpeg';
   }
@@ -124,16 +216,16 @@ function normalizeImageUrl(url?: string): string {
 
   // Path tuyệt đối: /uploads/movies/...
   if (url.startsWith('/')) {
-    return `${OPHIM_IMAGE_BASE_URL}${url}`;
+    return `${imageBaseUrl}${url}`;
   }
 
   // Path đã có uploads/movies/ rồi → không ghép thêm
   if (url.startsWith('uploads/')) {
-    return `${OPHIM_IMAGE_BASE_URL}/${url}`;
+    return `${imageBaseUrl}/${url}`;
   }
 
   // Còn lại mới ghép đầy đủ
-  return `${OPHIM_IMAGE_BASE_URL}/uploads/movies/${url}`;
+  return `${imageBaseUrl}/uploads/movies/${url}`;
 }
 
 function toNumber(value: unknown, fallback = 0): number {
@@ -166,6 +258,86 @@ function normalizeCompareText(value: unknown): string {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
+}
+
+function toIsoDateString(value: unknown, fallback = new Date().toISOString()): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const ms = value > 1e12 ? value : value * 1000;
+    const parsed = new Date(ms);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+    return fallback;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+
+    const asNumber = Number(trimmed);
+    if (Number.isFinite(asNumber)) {
+      const ms = asNumber > 1e12 ? asNumber : asNumber * 1000;
+      const parsed = new Date(ms);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+      }
+      return fallback;
+    }
+
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  return fallback;
+}
+
+function parseDateMs(value: string | undefined): number {
+  const time = Date.parse(String(value || ''));
+  return Number.isFinite(time) ? time : 0;
+}
+
+function sortMoviesNewestDesc(movies: Movie[]): Movie[] {
+  return [...movies].sort((a, b) => {
+    const updatedDiff = parseDateMs(b.updated_at) - parseDateMs(a.updated_at);
+    if (updatedDiff !== 0) return updatedDiff;
+
+    const createdDiff = parseDateMs(b.created_at) - parseDateMs(a.created_at);
+    if (createdDiff !== 0) return createdDiff;
+
+    const yearDiff = toNumber(b.year, 0) - toNumber(a.year, 0);
+    if (yearDiff !== 0) return yearDiff;
+
+    const episodeDiff = toNumber(b.current_episode, 0) - toNumber(a.current_episode, 0);
+    if (episodeDiff !== 0) return episodeDiff;
+
+    return String(a.title || '').localeCompare(String(b.title || ''));
+  });
+}
+
+function withDefaultNewestSort(path: string): string {
+  const shouldForceSort =
+    path.startsWith('/v1/api/tim-kiem') ||
+    path.startsWith('/v1/api/danh-sach') ||
+    path.startsWith('/v1/api/the-loai') ||
+    path.startsWith('/v1/api/quoc-gia');
+
+  if (!shouldForceSort) {
+    return path;
+  }
+
+  const [basePath, queryString = ''] = path.split('?');
+  const params = new URLSearchParams(queryString);
+
+  if (!params.get('sort_field')) {
+    params.set('sort_field', DEFAULT_SORT_FIELD);
+  }
+  if (!params.get('sort_type')) {
+    params.set('sort_type', DEFAULT_SORT_TYPE);
+  }
+
+  return `${basePath}?${params.toString()}`;
 }
 
 function mapEpisodesList(rawEpisodes: unknown): Array<{ name: string; link_embed: string; link_m3u8: string }> {
@@ -345,15 +517,23 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
     }
 
     const loadingPromise = (async () => {
-      const item = await fetchOPhimItemBySlugSafe(normalizedSlug);
+      const [item, kkItem] = await Promise.all([
+        fetchOPhimItemBySlugSafe(normalizedSlug),
+        fetchKKItemBySlugSafe(normalizedSlug),
+      ]);
 
-      if (item) {
-        const baseMovie = mapOPhimMovie(item);
+      if (item || kkItem) {
+        const sourceItem = kkItem || item;
+        const baseMovie = item && kkItem
+          ? mergeMovieDetails(mapKKMovie(kkItem), mapOPhimMovie(item))
+          : kkItem
+            ? mapKKMovie(kkItem)
+            : mapOPhimMovie(item!);
         cacheDetailMovie(baseMovie);
 
         if (!detailEnrichPendingCache.has(normalizedSlug)) {
           const enrichPromise = (async () => {
-            const baseOrigin = String(item.origin_name || item.name || normalizedSlug);
+            const baseOrigin = String(sourceItem?.origin_name || sourceItem?.name || normalizedSlug);
             const nc = await withTimeout(
               resolveNguoncMovieForOphim(normalizedSlug, baseOrigin),
               EXTERNAL_SOURCE_TIMEOUT_MS,
@@ -365,7 +545,7 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
             const latest = getCachedMovieBySlug(normalizedSlug) ?? baseMovie;
             let enriched = latest;
 
-            if (nc?.movie && shouldMergeBySlugOrOrigin(item.slug, item.origin_name || item.name, nc.movie.slug, nc.movie.original_name || nc.movie.name)) {
+            if (nc?.movie && shouldMergeBySlugOrOrigin(sourceItem?.slug, sourceItem?.origin_name || sourceItem?.name, nc.movie.slug, nc.movie.original_name || nc.movie.name)) {
               const ncServers = buildNguoncServers(nc.movie.episodes);
               if (ncServers.length > 0) {
                 const mergedServers = [...(enriched.servers || []), ...ncServers];
@@ -406,11 +586,15 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
       );
 
       let itemFromOrigin: Record<string, unknown> | null = null;
+      let kkItemFromOrigin: Record<string, unknown> | null = null;
       const originCandidates = [
         String(nc?.movie?.original_name || nc?.movie?.name || ''),
       ].filter(Boolean);
 
       for (const candidate of originCandidates) {
+        kkItemFromOrigin = await resolveKKMovieByOriginName(candidate);
+        if (kkItemFromOrigin) break;
+
         itemFromOrigin = await resolveOPhimMovieByOriginName(candidate);
         if (itemFromOrigin) break;
       }
@@ -424,7 +608,7 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
         );
       }
 
-      if (!itemFromOrigin && !nc?.movie) {
+      if (!itemFromOrigin && !kkItemFromOrigin && !nc?.movie) {
         return null;
       }
 
@@ -432,7 +616,11 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
       let baseSlug: unknown;
       let baseOrigin: unknown;
 
-      if (itemFromOrigin) {
+      if (kkItemFromOrigin) {
+        movie = mapKKMovie(kkItemFromOrigin);
+        baseSlug = kkItemFromOrigin.slug;
+        baseOrigin = kkItemFromOrigin.origin_name || kkItemFromOrigin.name;
+      } else if (itemFromOrigin) {
         movie = mapOPhimMovie(itemFromOrigin);
         baseSlug = itemFromOrigin.slug;
         baseOrigin = itemFromOrigin.origin_name || itemFromOrigin.name;
@@ -484,12 +672,12 @@ export async function getMovieBySlug(slug: string): Promise<Movie | null> {
       (cached.episodes_data?.length ?? 0) > 0 ||
       !!cached.stream_url;
 
-    // List payloads can be cached before full detail arrives.
-    // If playback data is missing, await a fresh detail fetch instead of returning partial data.
-    if (!hasPlayableData) {
+    if (!hasPlayableData || needsFreshDetail(cached)) {
       return loadMovieBySlugInternal(normalizedSlug, true);
     }
 
+    // List payloads can be cached before full detail arrives.
+    // If playback data is missing, await a fresh detail fetch instead of returning partial data.
     if (!detailPendingCache.has(normalizedSlug)) {
       void loadMovieBySlugInternal(normalizedSlug, true);
     }
@@ -558,6 +746,8 @@ function mapNguoncMovie(ncMovie: NguoncMoviePayload, requestedSlug: string): Mov
     .map((v) => v.trim())
     .filter(Boolean);
 
+  const nowIso = new Date().toISOString();
+
   return {
     id: String(ncMovie.slug || ncMovie.id || requestedSlug),
     slug: String(ncMovie.slug || requestedSlug),
@@ -577,8 +767,8 @@ function mapNguoncMovie(ncMovie: NguoncMoviePayload, requestedSlug: string): Mov
     is_series: Math.max(totalEpisodes, currentEpisode) > 1,
     status: totalEpisodes > 0 && currentEpisode >= totalEpisodes ? 'completed' : 'ongoing',
     is_featured: false,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: nowIso,
+    updated_at: nowIso,
     stream_url: firstEpisodes[0]?.link_m3u8 || firstEpisodes[0]?.link_embed || '',
     episodes_data: firstEpisodes,
     servers,
@@ -592,7 +782,16 @@ function mapNguoncMovie(ncMovie: NguoncMoviePayload, requestedSlug: string): Mov
   };
 }
 
-function mapOPhimMovie(raw: any): Movie {
+function normalizeKKServerName(serverName: string, index: number): string {
+  const base = String(serverName || `Server ${index + 1}`).trim();
+  if (/\[KK\]/i.test(base)) {
+    return base;
+  }
+
+  return `${base} [KK]`;
+}
+
+function mapOPhimMovie(raw: any, imageBaseUrl = OPHIM_IMAGE_BASE_URL): Movie {
   const episodeTotal = toNumber(raw.episode_total, 1);
   const rawEpisodeCurrent = String(raw.episode_current || '');
   const isTrailerStatus =
@@ -619,14 +818,24 @@ function mapOPhimMovie(raw: any): Movie {
     ? [raw.actor]
     : [];
 
+  const fallbackNow = new Date().toISOString();
+  const updatedAt = toIsoDateString(
+    raw?.modified?.time ?? raw?.modified?.date ?? raw?.updated_at,
+    fallbackNow,
+  );
+  const createdAt = toIsoDateString(
+    raw?.created?.time ?? raw?.created?.date ?? raw?.created_at,
+    updatedAt,
+  );
+
   return {
     id: String(raw.slug || raw._id || raw.id || `${raw.name || 'movie'}-${raw.year || 'unknown'}`),
     slug: String(raw.slug || raw._id || raw.id || ''),
     title: String(raw.name || raw.title || 'Đang cập nhật'),
     title_en: String(raw.origin_name || raw.title_en || raw.name || ''),
     description: stripHtml(String(raw.content || raw.description || 'Chưa có mô tả cho phim này.')),
-    thumb_url: normalizeImageUrl(raw.thumb_url || raw.poster_url),
-    poster_url: normalizeImageUrl(raw.poster_url || raw.thumb_url),
+    thumb_url: normalizeImageUrl(raw.thumb_url || raw.poster_url, imageBaseUrl),
+    poster_url: normalizeImageUrl(raw.poster_url || raw.thumb_url, imageBaseUrl),
     imdb_rating: Number(rating.toFixed(1)),
     year: toNumber(raw.year, new Date().getFullYear()),
     episodes: Math.max(episodeTotal, currentEpisode),
@@ -638,8 +847,8 @@ function mapOPhimMovie(raw: any): Movie {
     is_series: !isTrailerStatus && Math.max(episodeTotal, currentEpisode) > 1,
     status: isTrailerStatus ? 'trailer' : String(raw.status || ''),
     is_featured: false,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: createdAt,
+    updated_at: updatedAt,
     stream_url: raw?.episodes?.[0]?.server_data?.[0]?.link_embed || raw?.episodes?.[0]?.server_data?.[0]?.link_m3u8,
     // trailer_url: String(raw.trailer_url || ''),
     episodes_data: Array.isArray(raw?.episodes?.[0]?.server_data)
@@ -679,19 +888,51 @@ function mapOPhimMovie(raw: any): Movie {
   };
 }
 
-async function fetchOPhim(path: string): Promise<OPhimResponse> {
-  const response = await fetch(`${OPHIM_BASE_URL}${path}`);
+async function fetchSource(path: string, baseUrl: string): Promise<OPhimResponse> {
+  const response = await fetch(`${baseUrl}${path}`);
 
   if (!response.ok) {
-    throw new Error(`OPhim request failed: ${response.status}`);
+    throw new Error(`Source request failed: ${response.status}`);
   }
 
   return (await response.json()) as OPhimResponse;
 }
 
+async function fetchOPhim(path: string): Promise<OPhimResponse> {
+  return fetchSource(path, OPHIM_BASE_URL);
+}
+
+async function fetchKK(path: string): Promise<OPhimResponse> {
+  return fetchSource(path, KK_BASE_URL);
+}
+
+async function fetchMovieItemsFromSource(json: OPhimResponse): Promise<Array<Record<string, unknown>>> {
+  const items = (json?.data?.items || json?.items || []) as Array<Record<string, unknown>>;
+  return Array.isArray(items) ? items : [];
+}
+
+async function fetchMoviesBySource(baseUrl: string, path: string): Promise<Movie[]> {
+  const json = await fetchSource(path, baseUrl);
+  const imageBaseUrl = normalizeImageBaseUrl(json?.data?.APP_DOMAIN_CDN_IMAGE);
+  const items = await fetchMovieItemsFromSource(json);
+
+  return items
+    .map((item) => (baseUrl === KK_BASE_URL ? mapKKMovie(item, imageBaseUrl || undefined) : mapOPhimMovie(item, imageBaseUrl || undefined)))
+    .filter((movie) => !!movie.id && !!movie.slug && movie.status !== 'trailer');
+}
+
 async function fetchOPhimItemBySlugSafe(slug: string): Promise<Record<string, unknown> | null> {
   try {
     const json = await fetchOPhim(`/v1/api/phim/${encodeURIComponent(slug)}`);
+    return ((json?.data as any)?.item as Record<string, unknown> | undefined) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchKKItemBySlugSafe(slug: string): Promise<Record<string, unknown> | null> {
+  try {
+    const json = await fetchKK(`/v1/api/phim/${encodeURIComponent(slug)}`);
     return ((json?.data as any)?.item as Record<string, unknown> | undefined) || null;
   } catch {
     return null;
@@ -726,6 +967,34 @@ async function resolveOPhimMovieByOriginName(originName: string): Promise<Record
   }
 }
 
+async function resolveKKMovieByOriginName(originName: string): Promise<Record<string, unknown> | null> {
+  const q = originName.trim();
+  if (!q) return null;
+
+  try {
+    const search = await fetchKK(`/v1/api/tim-kiem?keyword=${encodeURIComponent(q)}&limit=24`);
+    const items = ((search?.data as any)?.items || []) as Array<Record<string, unknown>>;
+    if (!Array.isArray(items) || items.length === 0) {
+      return null;
+    }
+
+    const target = normalizeCompareText(originName);
+    const exact = items.find((it) => {
+      const n = normalizeCompareText(it.origin_name || it.name || '');
+      return !!n && n === target;
+    }) || items.find((it) => !!it.slug);
+
+    const foundSlug = String(exact?.slug || '').trim();
+    if (!foundSlug) {
+      return null;
+    }
+
+    return fetchKKItemBySlugSafe(foundSlug);
+  } catch {
+    return null;
+  }
+}
+
 function shouldMergeBySlugOrOrigin(
   baseSlug: unknown,
   baseOrigin: unknown,
@@ -743,6 +1012,21 @@ function shouldMergeBySlugOrOrigin(
   return !!aOrigin && !!bOrigin && aOrigin === bOrigin;
 }
 
+async function fetchMergedMoviesByPath(path: string): Promise<Movie[]> {
+  const sortedPath = withDefaultNewestSort(path);
+  const [ophimResult, kkResult] = await Promise.allSettled([
+    fetchMoviesBySource(OPHIM_BASE_URL, sortedPath),
+    fetchMoviesBySource(KK_BASE_URL, sortedPath),
+  ]);
+
+  const movies = [
+    ...(kkResult.status === 'fulfilled' ? kkResult.value : []),
+    ...(ophimResult.status === 'fulfilled' ? ophimResult.value : []),
+  ];
+
+  return sortMoviesNewestDesc(dedupeMovies(movies));
+}
+
 export async function getHomeMovies(): Promise<Movie[]> {
   if (homeCache && Date.now() < homeCache.expiresAt) {
     return homeCache.data;
@@ -753,11 +1037,7 @@ export async function getHomeMovies(): Promise<Movie[]> {
   }
 
   homePendingPromise = (async () => {
-    const json = await fetchOPhim('/v1/api/home');
-    const items = (json?.data?.items || json?.items || []) as any[];
-    const data = items
-      .map(mapOPhimMovie)
-      .filter((movie) => !!movie.id && !!movie.slug && movie.status !== 'trailer');
+    const data = await fetchMergedMoviesByPath('/v1/api/home');
     homeCache = {
       data,
       expiresAt: Date.now() + HOME_CACHE_TTL,
@@ -774,9 +1054,7 @@ export async function getHomeMovies(): Promise<Movie[]> {
 
 export async function getMoviesByCountry(country: string, page: number = 1): Promise<Movie[]> {
   try {
-    const json = await fetchOPhim(`/v1/api/quoc-gia/${country}?page=${page}`);
-    const items = (json?.data?.items || json?.items || []) as any[];
-    return items.map(mapOPhimMovie).filter((movie) => !!movie.id && !!movie.slug && movie.status !== 'trailer');
+    return await fetchMergedMoviesByPath(`/v1/api/quoc-gia/${country}?page=${page}`);
   } catch {
     return [];
   }
@@ -798,9 +1076,8 @@ export async function getMoviesByCountryPaged(
 ): Promise<{ movies: Movie[]; totalPages: number }> {
   try {
     const json = await fetchOPhim(`/v1/api/quoc-gia/${country}?page=${page}`);
-    const items = (json?.data?.items || json?.items || []) as any[];
     const totalPages = parseTotalPages(json?.data as any);
-    const movies = items.map(mapOPhimMovie).filter((movie) => !!movie.id && !!movie.slug && movie.status !== 'trailer');
+    const movies = await fetchMergedMoviesByPath(`/v1/api/quoc-gia/${country}?page=${page}`);
     return { movies, totalPages };
   } catch {
     return { movies: [], totalPages: 1 };
@@ -809,9 +1086,7 @@ export async function getMoviesByCountryPaged(
 
 export async function getMoviesByType(type: string, page: number = 1): Promise<Movie[]> {
   try {
-    const json = await fetchOPhim(`/v1/api/danh-sach/${type}?page=${page}`);
-    const items = (json?.data?.items || json?.items || []) as any[];
-    return items.map(mapOPhimMovie).filter((movie) => !!movie.id && !!movie.slug && movie.status !== 'trailer');
+    return await fetchMergedMoviesByPath(`/v1/api/danh-sach/${type}?page=${page}`);
   } catch {
     return [];
   }
@@ -823,9 +1098,8 @@ export async function getMoviesByTypePaged(
 ): Promise<{ movies: Movie[]; totalPages: number }> {
   try {
     const json = await fetchOPhim(`/v1/api/danh-sach/${type}?page=${page}`);
-    const items = (json?.data?.items || json?.items || []) as any[];
     const totalPages = parseTotalPages(json?.data as any);
-    const movies = items.map(mapOPhimMovie).filter((movie) => !!movie.id && !!movie.slug && movie.status !== 'trailer');
+    const movies = await fetchMergedMoviesByPath(`/v1/api/danh-sach/${type}?page=${page}`);
     return { movies, totalPages };
   } catch {
     return { movies: [], totalPages: 1 };
@@ -841,9 +1115,8 @@ export async function getMoviesByGenrePaged(
     const sortParam =
       sort === 'xem-nhieu' ? '&sort_field=view&sort_type=desc' : '';
     const json = await fetchOPhim(`/v1/api/the-loai/${genre}?page=${page}${sortParam}`);
-    const items = (json?.data?.items || json?.items || []) as any[];
     const totalPages = parseTotalPages(json?.data as any);
-    const movies = items.map(mapOPhimMovie).filter((m) => !!m.id && !!m.slug && m.status !== 'trailer');
+    const movies = await fetchMergedMoviesByPath(`/v1/api/the-loai/${genre}?page=${page}${sortParam}`);
     return { movies, totalPages };
   } catch {
     return { movies: [], totalPages: 1 };
@@ -884,9 +1157,8 @@ export async function getMoviesFilteredPaged(
     }
 
     const json = await fetchOPhim(path);
-    const items = ((json?.data as any)?.items || []) as any[];
     const totalPages = parseTotalPages(json?.data as any);
-    const movies = items.map(mapOPhimMovie).filter((m: Movie) => !!m.id && !!m.slug && m.status !== 'trailer');
+    const movies = await fetchMergedMoviesByPath(path);
     return { movies, totalPages };
   } catch {
     return { movies: [], totalPages: 1 };
@@ -895,9 +1167,7 @@ export async function getMoviesFilteredPaged(
 
 export async function searchMovies(keyword: string): Promise<Movie[]> {
   try {
-    const json = await fetchOPhim(`/v1/api/tim-kiem?keyword=${encodeURIComponent(keyword)}&limit=24`);
-    const items = (json?.data?.items || (json?.data as any)?.items || []) as any[];
-    return items.map(mapOPhimMovie).filter((m) => !!m.id && !!m.slug);
+    return await fetchMergedMoviesByPath(`/v1/api/tim-kiem?keyword=${encodeURIComponent(keyword)}&limit=24`);
   } catch {
     return [];
   }
@@ -949,19 +1219,16 @@ export async function searchMoviesWithFilters(params: {
       path = `/v1/api/danh-sach/phim-bo?${q.join('&')}`;
     }
 
-    const json = await fetchOPhim(path);
-    const items = ((json?.data as any)?.items || []) as any[];
-    const ophimMovies = items.map(mapOPhimMovie).filter((m: Movie) => !!m.id && !!m.slug);
-
-    if (!kw) {
-      return ophimMovies;
-    }
-
-    const [ncCandidates] = await Promise.all([
-      fetchNguoncSearchCandidates(kw),
+    const [movies, ncCandidates] = await Promise.all([
+      fetchMergedMoviesByPath(path),
+      kw ? fetchNguoncSearchCandidates(kw) : Promise.resolve([]),
     ]);
 
-    const slugSeen = new Set(ophimMovies.map((m) => normalizeCompareText(m.slug || m.id)));
+    if (!kw) {
+      return movies;
+    }
+
+    const slugSeen = new Set(movies.map((movie) => normalizeCompareText(movie.slug || movie.id)));
 
     const ncMovies = ncCandidates
       .filter((item) => {
@@ -974,7 +1241,7 @@ export async function searchMoviesWithFilters(params: {
         return mapped;
       });
 
-    return [...ophimMovies, ...ncMovies];
+    return dedupeMovies([...movies, ...ncMovies]);
   } catch {
     return [];
   }
@@ -1012,37 +1279,16 @@ function mapNguoncSearchMovie(item: NguoncSearchMovie): Movie {
   };
 }
 
-function mapKKSearchMovie(item: KKSearchMovie): Movie {
-  const total = Math.max(toNumber(item.episode_total, 1), 1);
-  const current = Math.max(toNumber(item.episode_current, 1), 1);
-  const preferredPoster = normalizeKKImageUrl(item.poster_url || item.thumb_url);
-  const preferredThumb = normalizeKKImageUrl(item.poster_url || item.thumb_url);
-  return {
-    id: String(item.slug || item.name || item.origin_name || 'kk-movie'),
-    slug: String(item.slug || ''),
-    title: String(item.name || item.origin_name || 'Đang cập nhật'),
-    title_en: String(item.origin_name || item.name || ''),
-    description: 'Nguồn KK',
-    thumb_url: preferredThumb,
-    poster_url: preferredPoster,
-    imdb_rating: 0,
-    year: toNumber(item.year, new Date().getFullYear()),
-    episodes: Math.max(total, current),
-    current_episode: current,
-    duration: 0,
-    duration_text: '',
-    quality: String(item.quality || 'HD'),
-    age_rating: 'T13',
-    is_series: Math.max(total, current) > 1,
-    status: 'ongoing',
-    is_featured: false,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    episodes_data: [],
-    servers: [],
-    lang: String(item.lang || ''),
-    lang_key: [],
-    last_episodes: [],
-  };
+function mapKKMovie(raw: Record<string, unknown>, imageBaseUrl = OPHIM_IMAGE_BASE_URL): Movie {
+  const movie = mapOPhimMovie(raw, imageBaseUrl);
+
+  movie.servers = Array.isArray(movie.servers)
+    ? movie.servers.map((server, index) => ({
+        ...server,
+        name: normalizeKKServerName(server.name || '', index),
+      }))
+    : movie.servers;
+
+  return movie;
 }
 
