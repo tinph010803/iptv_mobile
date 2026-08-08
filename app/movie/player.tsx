@@ -358,7 +358,7 @@ var v=document.getElementById('v'),
 document.getElementById('top-title').textContent=EP?TT+' | '+(EP.trim()!==''&&!isNaN(Number(EP.trim()))?'T\u1eadp '+EP:EP):TT;
 
 var hls=null,dur=0,quals=[],curQ=-1,curSpd=1,hideTimer=null,ctrlOn=false,locked=false,skipExpired=false,resumeAt=INIT_TIME||0;
-var AD_START=14*60+55,AD_READY=15*60,AD_SKIP=15*60+30;
+var AD_START=14*60+55,AD_READY=15*60,AD_SKIP=15*60+31;
 var SPDS=[0.25,0.5,0.75,1,1.25,1.5,2];
 var RATIOS=['contain','cover','fill'];
 var RATIO_LABELS=['T\u1ef7 l\u1ec7','\u0110\u1ea7y m\u00e0n h\u00ecnh','K\u00e9o gi\u00e3n'];

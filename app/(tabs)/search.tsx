@@ -285,7 +285,7 @@ export default function SearchScreen() {
 
   useEffect(() => {
     getHomeMovies()
-      .then((movies) => setTrending(movies.slice(0, 9)))
+      .then((movies) => setTrending(movies.slice(0, 18)))
       .catch(() => {})
       .finally(() => setLoadingTrend(false));
   }, []);

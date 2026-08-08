@@ -71,7 +71,7 @@ import { useState } from 'react';
 import { Pressable, Text, View, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  SlidersHorizontal,
+  Search,
   History,
   House as Home,
   Heart,
@@ -92,7 +92,7 @@ type TabItem = {
 };
 
 const SIDE_TABS_LEFT: TabItem[] = [
-  { href: '/filter', label: 'Lọc Phim', Icon: SlidersHorizontal },
+  { href: '/search', label: 'Tìm kiếm', Icon: Search },
   { href: '/history', label: 'Lịch sử', Icon: History },
 ];
 
