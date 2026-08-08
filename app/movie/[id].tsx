@@ -657,9 +657,14 @@ export default function MovieDetailScreen() {
 
         {/* ── Hero section ── */}
         <View style={styles.hero}>
-          {/* Blurred BG poster */}
-          <Image source={{ uri: movie.poster_url }} style={styles.heroBg} blurRadius={25} />
-          <View style={styles.heroDimmer} />
+        {/* BG poster with fade-to-background gradient */}
+<Image source={{ uri: movie.poster_url }} style={styles.heroBg} resizeMode="cover" />
+<View style={styles.heroDimmer} />
+<LinearGradient
+  colors={['transparent', 'transparent', Colors.background]}
+  locations={[0, 0.45, 1]}
+  style={styles.heroFade}
+/>
 
           {/* Back button */}
           <SafeAreaView edges={['top']} style={styles.backWrap}>
@@ -777,22 +782,35 @@ export default function MovieDetailScreen() {
           )}
 
           {/* Big watch button */}
-          <TouchableOpacity
-            style={[styles.watchBtnLarge, movie.status === 'trailer' && { opacity: 0.4 }]}
-            activeOpacity={movie.status === 'trailer' ? 1 : 0.85}
-            disabled={movie.status === 'trailer'}
-            onPress={() => openPlayer(firstEpisodeUrl, firstEpisodeName, movie.servers?.[0]?.name ?? '')}
-          >
-            <LinearGradient
-              colors={['#FECF59', '#FFF09A']}
-              start={{ x: 0, y: 1 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.watchBtnGradient}
+          <View style={styles.watchBtnWrap}>
+            <Image
+              source={require('./caytrai.png')}
+              style={styles.branchLeft}
+              resizeMode="contain"
+            />
+            <Image
+              source={require('./cayphai.png')}
+              style={styles.branchRight}
+              resizeMode="contain"
+            />
+
+            <TouchableOpacity
+              style={[styles.watchBtnLarge, movie.status === 'trailer' && { opacity: 0.4 }]}
+              activeOpacity={movie.status === 'trailer' ? 1 : 0.85}
+              disabled={movie.status === 'trailer'}
+              onPress={() => openPlayer(firstEpisodeUrl, firstEpisodeName, movie.servers?.[0]?.name ?? '')}
             >
-              <Play size={18} color="#1a1a1a" fill="#1a1a1a" strokeWidth={0} />
-              <Text style={styles.watchBtnText}>Xem Ngay</Text>
-            </LinearGradient>
-          </TouchableOpacity>
+              <LinearGradient
+                colors={['#FFA9CB', '#FFD3E6']}
+                start={{ x: 0, y: 1 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.watchBtnGradient}
+              >
+                <Play size={18} color="#1a1a1a" fill="#1a1a1a" strokeWidth={0} />
+                <Text style={styles.watchBtnText}>Xem Ngay</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
 
           {/* Action icons */}
           <View style={styles.actionRow}>
@@ -1219,8 +1237,28 @@ const styles = StyleSheet.create({
 
   // Hero
   hero: { minHeight: 420 },
-  heroBg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', opacity: 0.45 },
-  heroDimmer: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(7,17,58,0.72)' },
+heroBg: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  height: 420,
+},
+heroDimmer: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  height: 420,
+  backgroundColor: 'rgba(0,0,0,0.25)',
+},
+heroFade: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  height: 420,
+},
   backWrap: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
   backBtn: {
     margin: 14,
@@ -1325,12 +1363,15 @@ const styles = StyleSheet.create({
   scheduleBold: {
     fontWeight: '700',
   },
-
   // Watch button
-  watchBtnLarge: {
+  watchBtnWrap: {
     marginHorizontal: 18,
     marginTop: 12,
     marginBottom: 16,
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  watchBtnLarge: {
     borderRadius: 32,
     overflow: 'hidden',
   },
@@ -1343,7 +1384,22 @@ const styles = StyleSheet.create({
     borderRadius: 32,
   },
   watchBtnText: { color: '#1a1a1a', fontSize: 16, fontWeight: '800' },
-
+  branchLeft: {
+    position: 'absolute',
+    left: 3,
+    top: 4,
+    width: 60,
+    height: 52,
+    zIndex: 2,
+  },
+  branchRight: {
+    position: 'absolute',
+    right: 1,
+    top: 4,
+    width: 70,
+    height: 56,
+    zIndex: 2,
+  },
   // Action row
   actionRow: {
     flexDirection: 'row',
@@ -1649,4 +1705,5 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+
 });
