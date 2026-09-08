@@ -88,7 +88,7 @@ const LOGOS = {
     motchilltv: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775905558/logo_mx7bjo.png',
     ganhTruyen: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1780205428/pZCZJ-removebg-preview_zfcdpg.png',
     thanhGanhManga: 'https://img.upanhnhanh.com/c1b2b67d909a03f92e233092ed4b56fd',
-    ganhTheThao: 'https://eascore.io/wp-content/uploads/2026/05/cropped-logo-socolive-tv.png',
+    ganhTheThao: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1788846199/NMqXR-removebg-preview_v0qwdc.png',
     ganh3d: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775824346/ganh3d-removebg-preview_x3cw8x.png',
 };
 
@@ -298,7 +298,7 @@ export default function IntroScreen() {
                                     description="Không gian tổng hợp thông tin thể thao mang tính giải trí và cập nhật nhanh."
                                     action="Xem ngay"
                                     backgroundImage={BACKGROUNDS.ganhTheThao}
-                                    onPress={() => setShowSportsGate(true)}
+                                    onPress={() => router.push('/ganhthethao' as any)}
                                 />
 
                                 <FeatureCard
@@ -482,52 +482,6 @@ export default function IntroScreen() {
                     </Pressable>
                 </View>
 
-                {showSportsGate ? (
-                    <View style={styles.sportsGateOverlay}>
-                        <View style={styles.sportsGateCard}>
-                            <Pressable
-                                onPress={() => setShowSportsGate(false)}
-                                style={({ pressed }) => [styles.sportsGateCloseBtn, pressed && styles.sportsGateCloseBtnPressed]}
-                            >
-                                <Text style={styles.sportsGateCloseText}>X</Text>
-                            </Pressable>
-
-                            <Image source={{ uri: SPORTS_GATE_IMAGE }} style={styles.sportsGateImage} contentFit="contain" />
-
-                            <Pressable
-                                onPress={() => setSportsTermsAccepted((prev) => !prev)}
-                                style={({ pressed }) => [styles.sportsGateTermsRow, pressed && styles.sportsGateTermsRowPressed]}
-                            >
-                                <View style={[styles.sportsGateCheckbox, sportsTermsAccepted && styles.sportsGateCheckboxChecked]}>
-                                    {sportsTermsAccepted ? <Text style={styles.sportsGateCheckboxMark}>✓</Text> : null}
-                                </View>
-                                <Text style={styles.sportsGateTermsText}>Tôi đồng ý với</Text>
-                                <Pressable
-                                    onPress={() => {
-                                        setShowSportsGate(false);
-                                        setActiveTab('terms');
-                                    }}
-                                >
-                                    <Text style={styles.sportsGateTermsLink}>điều khoản của hệ thống</Text>
-                                </Pressable>
-                            </Pressable>
-
-                            <Pressable
-                                onPress={handleContinueToSports}
-                                disabled={!sportsTermsAccepted}
-                                style={({ pressed }) => [
-                                    styles.sportsGateContinueBtn,
-                                    !sportsTermsAccepted && styles.sportsGateContinueBtnDisabled,
-                                    pressed && sportsTermsAccepted && styles.sportsGateContinueBtnPressed,
-                                ]}
-                            >
-                                <Text style={[styles.sportsGateContinueText, !sportsTermsAccepted && styles.sportsGateContinueTextDisabled]}>
-                                    Tiếp tục
-                                </Text>
-                            </Pressable>
-                        </View>
-                    </View>
-                ) : null}
 
                 {showCinemaGate ? (
                     <View style={styles.cinemaGateOverlay}>

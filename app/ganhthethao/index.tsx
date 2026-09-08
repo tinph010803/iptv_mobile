@@ -1,328 +1,191 @@
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Dimensions, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { WebView } from 'react-native-webview';
 import { Image } from 'expo-image';
-import { ChevronLeft, RefreshCw, X } from 'lucide-react-native';
-import { loadSportsUrl } from '@/lib/appConfig';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BarChart3, Calendar, ChevronDown, ChevronLeft, Filter, Menu, Search, Trophy } from 'lucide-react-native';
 
-const SPORTS_URL = 'https://eascore.io/';
-const SPORTS_LOGO = 'https://img.upanhnhanh.com/7f20bbdd8347a97d368892053626bff2';
-const OPEN_IN_SAME_WEBVIEW_SCRIPT = `
-(() => {
-    const post = (type) => {
-        try {
-            if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type }));
-            }
-        } catch {
-            // Ignore WebView bridge errors.
-        }
-    };
+const EPL_LOGO = 'https://assets.football-logos.cc/logos/england/512x512/english-premier-league.b597f797.png';
 
-    const readFullscreenState = () => {
-        const video = document.querySelector('video');
-        return !!(
-            document.fullscreenElement ||
-            document.webkitFullscreenElement ||
-            document.mozFullScreenElement ||
-            document.msFullscreenElement ||
-            (video && video.webkitDisplayingFullscreen)
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CARD_WIDTH = SCREEN_WIDTH * 0.82;
+const CARD_SPACING = 12;
+const SIDE_PADDING = 14;
+
+const MATCHES = [
+    { id: '1', image: 'https://i.ibb.co/TD8dPNDL/Vd2rk.jpg' },
+    { id: '2', image: 'https://i.ibb.co/FLh85YwR/OKqm-Q.jpg' },
+    { id: '3', image: 'https://i.ibb.co/tMMJ4HHp/ZGfw-O.jpg' },
+];
+
+function TabPill({ label, icon, active, hot, onPress }: {
+    label: string; icon?: React.ReactNode; active?: boolean; hot?: boolean; onPress: () => void;
+}) {
+    if (hot && active) {
+        return (
+            <Pressable onPress={onPress}>
+                <LinearGradient
+                    colors={['#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#B14DFF']}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={styles.tabPillHot}
+                >
+                    {icon}
+                    <Text style={styles.tabPillTextActive}>{label}</Text>
+                    <View style={styles.hotBadge}>
+                        <Text style={styles.hotBadgeText}>HOT</Text>
+                    </View>
+                </LinearGradient>
+            </Pressable>
         );
-    };
-
-    let lastFullscreen = false;
-
-    const syncFullscreenState = () => {
-        const isFullscreen = readFullscreenState();
-        if (isFullscreen === lastFullscreen) return;
-        lastFullscreen = isFullscreen;
-        post(isFullscreen ? 'fullscreen-enter' : 'fullscreen-exit');
-    };
-
-    const emitFullscreenState = () => {
-        const isFullscreen = !!(
-            document.fullscreenElement ||
-            document.webkitFullscreenElement ||
-            document.mozFullScreenElement ||
-            document.msFullscreenElement
-        );
-        lastFullscreen = isFullscreen;
-        post(isFullscreen ? 'fullscreen-enter' : 'fullscreen-exit');
-    };
-
-    document.addEventListener('fullscreenchange', emitFullscreenState, true);
-    document.addEventListener('webkitfullscreenchange', emitFullscreenState, true);
-    document.addEventListener('mozfullscreenchange', emitFullscreenState, true);
-    document.addEventListener('MSFullscreenChange', emitFullscreenState, true);
-
-    document.addEventListener('webkitbeginfullscreen', () => post('fullscreen-enter'), true);
-    document.addEventListener('webkitendfullscreen', () => post('fullscreen-exit'), true);
-
-    setInterval(syncFullscreenState, 300);
-    window.addEventListener('resize', syncFullscreenState, true);
-
-    setTimeout(syncFullscreenState, 100);
-    setTimeout(syncFullscreenState, 500);
-
-    const go = (url) => {
-        if (!url || typeof url !== 'string') return;
-        try {
-            const next = new URL(url, window.location.href);
-            if (next.protocol === 'https:' || next.protocol === 'http:') {
-                window.location.href = next.toString();
-            }
-        } catch {
-            // Ignore malformed URLs from third-party scripts.
-        }
-    };
-
-    window.open = function(url) {
-        go(String(url || ''));
-        return null;
-    };
-
-    document.addEventListener(
-        'click',
-        (event) => {
-            const target = event.target instanceof Element ? event.target : null;
-            const anchor = target?.closest('a[target="_blank"]');
-            if (!anchor) return;
-
-            const href = anchor.getAttribute('href') || '';
-            if (!href) return;
-
-            event.preventDefault();
-            event.stopPropagation();
-            go(href);
-        },
-        true
+    }
+    return (
+        <Pressable onPress={onPress} style={[styles.tabPill, active && styles.tabPillActive]}>
+            {icon}
+            <Text style={[styles.tabPillText, active && styles.tabPillTextActive]}>{label}</Text>
+        </Pressable>
     );
-})();
-true;
-`;
+}
 
-export default function GanhTheThaoScreen() {
-    const router = useRouter();
-    const webViewRef = useRef<WebView>(null);
-    const [canGoBack, setCanGoBack] = useState(false);
-    const [loading, setLoading] = useState(true);
-    const [sportsUrl, setSportsUrl] = useState<string | null>(null);
-
-    const lockLandscape = async () => {
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const SO = require('expo-screen-orientation');
-            await SO.lockAsync(SO.OrientationLock.LANDSCAPE);
-        } catch {
-            // Ignore if screen orientation module is unavailable.
-        }
-    };
-
-    const lockPortrait = async () => {
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const SO = require('expo-screen-orientation');
-            await SO.lockAsync(SO.OrientationLock.PORTRAIT_UP);
-        } catch {
-            // Ignore if screen orientation module is unavailable.
-        }
-    };
-
-    useEffect(() => {
-        if (Platform.OS !== 'android') return;
-
-        const onHardwareBack = () => {
-            if (canGoBack) {
-                webViewRef.current?.goBack();
-                return true;
-            }
-
-            router.back();
-            return true;
-        };
-
-        const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
-        return () => sub.remove();
-    }, [canGoBack, router]);
-
-    useEffect(() => {
-        if (!loading) return;
-
-        const t = setTimeout(() => setLoading(false), 8000);
-        return () => clearTimeout(t);
-    }, [loading]);
-
-    useEffect(() => {
-        return () => {
-            lockPortrait().catch(() => {});
-        };
-    }, []);
-
-    useEffect(() => {
-        let cancelled = false;
-
-        (async () => {
-            const url = await loadSportsUrl(SPORTS_URL);
-            if (!cancelled) {
-                setSportsUrl(url);
-            }
-        })();
-
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-
-    const handleWebMessage = (event: any) => {
-        const raw = event?.nativeEvent?.data;
-        if (!raw) return;
-
-        try {
-            const msg = JSON.parse(raw);
-            if (msg?.type === 'fullscreen-enter') {
-                lockLandscape().catch(() => {});
-            } else if (msg?.type === 'fullscreen-exit') {
-                lockPortrait().catch(() => {});
-            }
-        } catch {
-            // Ignore non-JSON messages from page scripts.
-        }
-    };
+function MatchCardCarousel() {
+    const listRef = useRef<FlatList>(null);
 
     return (
-        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-            <View style={styles.header}>
-                <Pressable
-                    onPress={() => webViewRef.current?.goBack()}
-                    disabled={!canGoBack}
-                    style={({ pressed }) => [styles.headerBtn, !canGoBack && styles.headerBtnDisabled, pressed && canGoBack && styles.headerBtnPressed]}
-                >
-                    <ChevronLeft size={18} color={canGoBack ? '#E7EEFF' : '#8EA2D8'} />
+        <FlatList
+            ref={listRef}
+            data={MATCHES}
+            keyExtractor={(item) => item.id}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={CARD_WIDTH + CARD_SPACING}
+            decelerationRate="fast"
+            snapToAlignment="start"
+            contentContainerStyle={{ paddingHorizontal: SIDE_PADDING }}
+            ItemSeparatorComponent={() => <View style={{ width: CARD_SPACING }} />}
+            renderItem={({ item }) => (
+                <Pressable style={styles.card}>
+                    <Image source={{ uri: item.image }} style={styles.cardImage} contentFit="cover" />
                 </Pressable>
+            )}
+        />
+    );
+}
 
-                <Image source={{ uri: SPORTS_LOGO }} style={styles.headerLogo} contentFit="contain" />
+export function SportsHeader() {
+    const router = useRouter();
+    const [tab, setTab] = useState<'tong-hop' | 'epl' | 'vleague'>('epl');
 
-                <View style={styles.headerActions}>
-                    <Pressable
-                        onPress={() => webViewRef.current?.reload()}
-                        style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}
-                    >
-                        <RefreshCw size={17} color="#E7EEFF" />
+    return (
+        <View style={styles.wrapper}>
+            <SafeAreaView edges={['top']} style={styles.safeArea}>
+                <View style={styles.header}>
+                    <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+                        <ChevronLeft size={22} color="#fff" />
                     </Pressable>
-
-                    <Pressable
-                        onPress={() => router.replace('/intro' as any)}
-                        style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}
-                    >
-                        <X size={17} color="#E7EEFF" />
+                    <Text style={styles.headerTitle}>Thể thao</Text>
+                    <Pressable style={styles.iconBtn}>
+                        <Search size={20} color="#fff" />
                     </Pressable>
                 </View>
-            </View>
 
-            <View style={styles.webviewWrap}>
-                {sportsUrl ? (
-                    <WebView
-                        ref={webViewRef}
-                        source={{ uri: sportsUrl }}
-                        style={styles.webview}
-                        originWhitelist={['*']}
-                        setSupportMultipleWindows={false}
-                        injectedJavaScriptBeforeContentLoaded={OPEN_IN_SAME_WEBVIEW_SCRIPT}
-                        injectedJavaScript={OPEN_IN_SAME_WEBVIEW_SCRIPT}
-                        javaScriptEnabled
-                        domStorageEnabled
-                        startInLoadingState={false}
-                        allowsFullscreenVideo
-                        allowsInlineMediaPlayback
-                        mediaPlaybackRequiresUserAction={false}
-                        mixedContentMode="always"
-                        thirdPartyCookiesEnabled
-                        onLoadStart={() => setLoading(true)}
-                        onLoadEnd={() => setLoading(false)}
-                        onLoadProgress={({ nativeEvent }) => {
-                            if (nativeEvent.progress > 0.3) {
-                                setLoading(false);
-                            }
-                        }}
-                        onNavigationStateChange={(state) => setCanGoBack(state.canGoBack)}
-                        onMessage={handleWebMessage}
-                        userAgent={
-                            Platform.OS === 'android'
-                                ? 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36'
-                                : 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
-                        }
+                <View style={styles.tabsRow}>
+                    <TabPill
+                        label="Tổng hợp"
+                        icon={<Text style={styles.tabPillEmoji}>🏸</Text>}
+                        active={tab === 'tong-hop'}
+                        onPress={() => setTab('tong-hop')}
                     />
-                ) : null}
+                    <TabPill
+                        label="Ngoại hạng Anh"
+                        icon={<Image source={{ uri: EPL_LOGO }} style={styles.tabPillLogo} contentFit="contain" />}
+                        hot
+                        active={tab === 'epl'}
+                        onPress={() => setTab('epl')}
+                    />
+                    <TabPill
+                        label="V.League"
+                        icon={<Trophy size={13} color="#FF4D4D" fill="#FF4D4D" />}
+                        active={tab === 'vleague'}
+                        onPress={() => setTab('vleague')}
+                    />
+                    <Pressable style={styles.menuBtn}>
+                        <Menu size={18} color="#fff" />
+                    </Pressable>
+                </View>
+            </SafeAreaView>
 
-                {loading || !sportsUrl ? (
-                    <View style={styles.loaderOverlay}>
-                        <ActivityIndicator size="large" color="#F3D061" />
-                        <Text style={styles.loaderText}>Đang tải...</Text>
-                    </View>
-                ) : null}
+            {/* 👇 carousel mới, nằm ngay dưới hàng tab có nút Menu */}
+            <View style={styles.carouselWrap}>
+                <MatchCardCarousel />
             </View>
-        </SafeAreaView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-        backgroundColor: '#091532',
-    },
+    wrapper: { backgroundColor: '#0A1642' },
+    safeArea: { backgroundColor: 'transparent' },
+
     header: {
         height: 52,
-        backgroundColor: '#0F1F4D',
-        borderBottomWidth: 1,
-        borderBottomColor: '#243A7A',
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 12,
     },
-    headerLogo: {
-        width: 140,
-        height: 34,
-    },
-    headerActions: {
+    headerTitle: { color: '#fff', fontSize: 20, fontWeight: '700' },
+    iconBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+
+    tabsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 8, paddingBottom: 10 },
+    tabPill: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-    },
-    headerBtn: {
-        width: 36,
-        height: 36,
-        borderRadius: 10,
+        gap: 4,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 16,
         backgroundColor: '#152A62',
+    },
+    tabPillActive: { backgroundColor: '#22347A' },
+    tabPillHot: {
+        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
+        gap: 4,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        paddingRight: 14,
+        borderRadius: 16,
     },
-    headerBtnDisabled: {
-        backgroundColor: '#132350',
+    tabPillEmoji: { fontSize: 12 },
+    tabPillLogo: { width: 16, height: 16, borderRadius: 8 },
+    tabPillText: { color: '#AFC0EE', fontSize: 12, fontWeight: '600' },
+    tabPillTextActive: { color: '#fff', fontSize: 12, fontWeight: '700' },
+    hotBadge: {
+        position: 'absolute',
+        top: -6,
+        right: -6,
+        backgroundColor: '#FF4D4D',
+        borderRadius: 6,
+        paddingHorizontal: 4,
+        paddingVertical: 1,
+        borderWidth: 1,
+        borderColor: '#0F1F4D',
     },
-    headerBtnPressed: {
-        opacity: 0.8,
+    hotBadgeText: { color: '#fff', fontSize: 8, fontWeight: '800' },
+    menuBtn: { marginLeft: 'auto', width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
+
+    carouselWrap: { paddingTop: 8, paddingBottom: 12 },
+    card: {
+        width: CARD_WIDTH,
+        borderRadius: 16,
+        overflow: 'hidden',
+        backgroundColor: '#152A62',
     },
-    webviewWrap: {
-        flex: 1,
-        backgroundColor: '#000',
-    },
-    webview: {
-        flex: 1,
-        backgroundColor: '#000',
-    },
-    loaderOverlay: {
-        ...StyleSheet.absoluteFill,
-        backgroundColor: '#091532',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 10,
-    },
-    loaderText: {
-        color: '#AFC0EE',
-        fontSize: 13,
-        fontWeight: '600',
+    cardImage: {
+        width: '100%',
+        aspectRatio: 375 / 220,
     },
 });
+
+export default SportsHeader;
