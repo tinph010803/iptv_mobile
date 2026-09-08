@@ -478,7 +478,7 @@ const styles = StyleSheet.create({
 
   /* modal */
   modalOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.6)',
   },
   modalKAV: { flex: 1, justifyContent: 'flex-end' },

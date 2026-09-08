@@ -414,7 +414,7 @@ const styles = StyleSheet.create({
 
 const fm = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' },
-  backdrop: { ...StyleSheet.absoluteFillObject },
+  backdrop: { ...StyleSheet.absoluteFill },
   sheet: {
     backgroundColor: '#0e1535',
     borderTopLeftRadius: 20, borderTopRightRadius: 20,

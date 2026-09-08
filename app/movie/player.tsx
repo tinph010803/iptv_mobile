@@ -997,7 +997,6 @@ export default function PlayerScreen() {
     // Only need to unlock when leaving.
     if (Platform.OS === 'android') {
       NavigationBar.setVisibilityAsync('hidden').catch(() => { });
-      NavigationBar.setBehaviorAsync('overlay-swipe').catch(() => { });
     }
     return () => {
       try {
@@ -1107,7 +1106,7 @@ export default function PlayerScreen() {
   );
 
   return (
-    <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000' }]}>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]}> 
       <StatusBar hidden />
       <WebView
         ref={webViewRef}

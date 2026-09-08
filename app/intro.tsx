@@ -754,7 +754,7 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     cardShade: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
     },
     featureCardContent: {
         zIndex: 2,
@@ -965,7 +965,7 @@ const styles = StyleSheet.create({
         color: '#F2D35F',
     },
     sportsGateOverlay: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         backgroundColor: 'rgba(4, 10, 28, 0.76)',
         paddingHorizontal: 18,
         justifyContent: 'center',
@@ -1064,7 +1064,7 @@ const styles = StyleSheet.create({
         color: '#A6B2D2',
     },
     cinemaGateOverlay: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         backgroundColor: 'rgba(4, 10, 28, 0.76)',
         paddingHorizontal: 18,
         justifyContent: 'center',
@@ -1174,7 +1174,7 @@ const styles = StyleSheet.create({
         fontWeight: '700',
     },
     ganh18GateOverlay: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         backgroundColor: 'rgba(4, 10, 28, 0.76)',
         paddingHorizontal: 18,
         justifyContent: 'center',

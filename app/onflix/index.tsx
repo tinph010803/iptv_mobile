@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
         borderColor: '#0F1F4D',
     },
     accountBackdrop: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         zIndex: 20,
         backgroundColor: 'transparent',
     },
@@ -438,7 +438,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     guideOverlay: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         zIndex: 24,
         backgroundColor: 'rgba(6, 22, 44, 0.2)',
     },
@@ -602,7 +602,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#091532',
     },
     loaderOverlay: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: 'rgba(8, 16, 40, 0.45)',

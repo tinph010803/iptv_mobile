@@ -8,7 +8,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import { ToastProvider } from '@/context/ToastContext';
 import { getHomeMovies } from '@/lib/ophim';
 import * as NavigationBar from 'expo-navigation-bar';
-import { Platform } from 'react-native';
+import { Platform, StatusBar as RNStatusBar } from 'react-native';
 
 export default function RootLayout() {
   useFrameworkReady();
@@ -18,8 +18,9 @@ export default function RootLayout() {
     getHomeMovies().catch(() => {});
     // Set Android navigation bar color
     if (Platform.OS === 'android') {
-      NavigationBar.setBackgroundColorAsync('#101E53').catch(() => {});
-      NavigationBar.setButtonStyleAsync('light').catch(() => {});
+      RNStatusBar.setTranslucent(true);
+      RNStatusBar.setBackgroundColor('transparent');
+      NavigationBar.setStyle('inverted');
     }
   }, []);
 

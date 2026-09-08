@@ -11,7 +11,7 @@ import {
   AppState,
   AppStateStatus,
 } from 'react-native';
-import { Video, ResizeMode } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Movie } from '@/types/movie';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -66,32 +66,30 @@ const TrailerVideo = memo(function TrailerVideo({
   active: boolean;
   muted: boolean;
 }) {
-  const videoRef = useRef<Video>(null);
+  const player = useVideoPlayer(videoUrl, (videoPlayer) => {
+    videoPlayer.loop = true;
+    videoPlayer.muted = muted;
+  });
 
   useEffect(() => {
-    if (!videoRef.current) return;
-    if (active) videoRef.current.playAsync().catch(() => { });
-    else {
-      videoRef.current.pauseAsync().catch(() => { });
-      videoRef.current.setPositionAsync(0).catch(() => { });
+    if (active) {
+      player.play();
+    } else {
+      player.pause();
+      player.currentTime = 0;
     }
-  }, [active]);
+  }, [active, player]);
 
-  // Sync muted thay đổi ngay lập tức mà không cần re-mount
   useEffect(() => {
-    videoRef.current?.setIsMutedAsync(muted).catch(() => { });
-  }, [muted]);
+    player.muted = muted;
+  }, [muted, player]);
 
   return (
-    <Video
-      ref={videoRef}
-      source={{ uri: videoUrl }}
+    <VideoView
+      player={player}
       style={StyleSheet.absoluteFill}
-      resizeMode={ResizeMode.COVER}
-      isLooping
-      isMuted={muted}
-      shouldPlay={active}
-      useNativeControls={false}
+      contentFit="cover"
+      nativeControls={false}
     />
   );
 });
@@ -168,12 +166,14 @@ const BannerSlide = memo(function BannerSlide({
         </View>
       ) : (
         <Animated.View style={[styles.bg, { transform: [{ scale: bgScale }] }]}>
-          <Animated.Image
-            source={{ uri: bgUri }}
-            style={{ width: W, height: BANNER_H }}
-            resizeMode="cover"
-            fadeDuration={0}
-          />
+          {bgUri ? (
+            <Animated.Image
+              source={{ uri: bgUri }}
+              style={{ width: W, height: BANNER_H }}
+              resizeMode="cover"
+              fadeDuration={0}
+            />
+          ) : null}
         </Animated.View>
       )}
 
@@ -372,7 +372,7 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ showTrailers = 
 const styles = StyleSheet.create({
   container: { marginBottom: 0, overflow: 'hidden' },
   slide: { width: W, height: BANNER_H, overflow: 'hidden', backgroundColor: '#1a1a2e' },
-  bg: { ...StyleSheet.absoluteFillObject },
+  bg: { ...StyleSheet.absoluteFill },
   gradBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: BANNER_H * 0.55 },
   gradTop: { position: 'absolute', top: 0, left: 0, right: 0, height: BANNER_H * 0.18 },
   gradLeft: { position: 'absolute', top: 0, left: 0, bottom: 0, width: W * 0.58 },

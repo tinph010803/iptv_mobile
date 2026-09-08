@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
 import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { useLocalSearchParams } from 'expo-router';
+import {
+  useFocusEffect,
+  useRouter,
+  useLocalSearchParams,
+} from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { Image } from 'expo-image';
 import { ChevronLeft, RefreshCw, X } from 'lucide-react-native';
@@ -601,9 +603,13 @@ const styles = StyleSheet.create({
       backgroundColor: '#000000',
     },
     loaderWrap: {
-        ...StyleSheet.absoluteFillObject,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#0A1436',
-    },
+  position: 'absolute',
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0,
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: '#0A1436',
+},
 });

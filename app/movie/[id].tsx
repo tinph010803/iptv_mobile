@@ -939,16 +939,6 @@ export default function MovieDetailScreen() {
                   })}
                 </ScrollView>
 
-
-                {/* Thông báo cho server KK - Text đơn giản */}
-                {(selectedMachine?.provider === 'KK' || selectedMachine?.provider === 'NC') && (
-                  <Text style={styles.kkWarningText}>
-                    {selectedMachine?.provider === 'KK'
-                      ? '⚠️ KK có quảng cáo giữa phim (15p,...). Shop sẽ khắc phục sớm. Mong thông cảm!'
-                      : '⚠️ NC có quảng cáo mặc định lúc ~2 phút đầu video. Mong bạn thông cảm!'}
-                  </Text>
-                )}
-
                 {episodeChunks.length > 1 && (
                   <ScrollView
                     horizontal

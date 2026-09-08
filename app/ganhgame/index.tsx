@@ -110,12 +110,12 @@ const styles = StyleSheet.create({
         minHeight: 420,
     },
     heroBackground: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         width: '100%',
         height: '100%',
     },
     heroShade: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
     },
     heroContent: {
         flex: 1,

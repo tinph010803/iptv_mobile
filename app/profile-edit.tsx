@@ -530,7 +530,7 @@ const styles = StyleSheet.create({
   avatarPickerSelected: { borderColor: '#D4A017' },
   avatarPickerImg: { width: '100%', height: '100%' },
   avatarCheckOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(212,160,23,0.25)',
   },
 

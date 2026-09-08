@@ -800,7 +800,7 @@ const styles = StyleSheet.create({
     width: '65%',
   },
   topicOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   topicGlow: {
     position: 'absolute',
