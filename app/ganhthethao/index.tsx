@@ -31,7 +31,9 @@ import {
   History,
   Menu,
   MoreHorizontal,
+  Play,
   Search,
+  SquarePlay,
   Trophy,
   Tv,
   X,
@@ -393,6 +395,11 @@ function isLiveMatch(match: FootballMatch) {
   return status === 'LIVE' || status === 'IN_PLAY';
 }
 
+function isOldMatch(match: FootballMatch, now: Date) {
+  const highlightTime = new Date(match.match_date).getTime() + 2 * 60 * 60 * 1000;
+  return now.getTime() >= highlightTime;
+}
+
 /* =========================================================
    NORMALIZE MATCH
 ========================================================= */
@@ -462,6 +469,7 @@ const MatchSection = forwardRef<
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [liveNow, setLiveNow] = useState(false);
+  const [now, setNow] = useState(() => new Date());
   const [calendarVisible, setCalendarVisible] = useState(false);
   const calendarBtnRef = useRef<View>(null);
   const [calendarAnchorTop, setCalendarAnchorTop] = useState(96);
@@ -470,6 +478,11 @@ const MatchSection = forwardRef<
   );
 
   const dayRefs = useRef<Record<string, any>>({});
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   function openCalendar() {
     calendarBtnRef.current?.measureInWindow((x, y, width, height) => {
@@ -782,8 +795,12 @@ const MatchSection = forwardRef<
                       const homeScore = match.score?.home;
                       const awayScore = match.score?.away;
                       const isLive = isLiveMatch(match);
+                      const isOld = isOldMatch(match, now);
                       const hasScore =
-                        homeScore !== null && homeScore !== undefined;
+                        homeScore !== null &&
+                        homeScore !== undefined &&
+                        awayScore !== null &&
+                        awayScore !== undefined;
 
                       return (
                         <Pressable
@@ -836,6 +853,22 @@ const MatchSection = forwardRef<
                               )}
                             </View>
                           </View>
+
+                          <Pressable
+                            style={styles.matchAction}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              isOld
+                                ? `Xem highlight trận ${match.home_team.team_name} và ${match.away_team.team_name}`
+                                : `Xem trận ${match.home_team.team_name} và ${match.away_team.team_name}`
+                            }
+                          >
+                            {isOld ? (
+                              <SquarePlay size={22} color="#FF6B57" />
+                            ) : (
+                              <Play size={22} color="#FFFFFF" />
+                            )}
+                          </Pressable>
                         </Pressable>
                       );
                     })}
@@ -852,7 +885,6 @@ const MatchSection = forwardRef<
         onClose={() => setCalendarVisible(false)}
         selectedDate={selectedDate}
         onSelectDate={scrollToDate}
-        minDate={todayStr}
         maxDate={formatDate(addDays(today, CALENDAR_PICK_DAYS - 1))}
         anchorTop={calendarAnchorTop}
       />
@@ -1349,6 +1381,14 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
 
+  matchAction: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+
   teamRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1415,7 +1455,7 @@ const styles = StyleSheet.create({
 
   backToTodayBtn: {
     position: 'absolute',
-    bottom: 24,
+    bottom: 80,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
