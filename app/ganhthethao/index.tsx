@@ -1,11 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Dimensions,
+  findNodeHandle,
   FlatList,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  UIManager,
   View,
 } from 'react-native';
 
@@ -15,14 +24,21 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import {
+  Building2,
   Calendar,
-  ChevronDown,
   ChevronLeft,
   Filter,
+  History,
   Menu,
+  MoreHorizontal,
   Search,
   Trophy,
+  Tv,
+  X,
 } from 'lucide-react-native';
+
+import { CalendarPickerModal } from './CalendarPickerModal';
+import { MenuPopover, type MenuPopoverItem } from './MenuPopover';
 
 /* =========================================================
    CONSTANTS
@@ -36,6 +52,11 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.82;
 const CARD_SPACING = 12;
 const SIDE_PADDING = 14;
+
+// Mỗi lần hiển thị đúng 1 tuần (Thứ 2 -> Chủ nhật), vd 07/09 -> 13/09,
+// tuần kế tiếp tự động là 14/09 -> 20/09.
+const WINDOW_DAYS = 7;
+const CALENDAR_PICK_DAYS = 60;
 
 /* =========================================================
    CAROUSEL
@@ -170,6 +191,10 @@ type FootballMatch = {
   };
 };
 
+type MatchSectionHandle = {
+  scrollToToday: () => void;
+};
+
 /* =========================================================
    TAB PILL
 ========================================================= */
@@ -253,7 +278,7 @@ function MatchCardCarousel() {
 }
 
 /* =========================================================
-   DATE
+   DATE HELPERS
 ========================================================= */
 
 function formatDate(date: Date) {
@@ -276,6 +301,74 @@ function formatMatchTime(dateString: string) {
     hour12: false,
     timeZone: 'Asia/Ho_Chi_Minh',
   });
+}
+
+function parseDateStr(dateString: string) {
+  const [y, m, d] = dateString.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function startOfDay(date: Date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function addDays(base: Date, amount: number) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + amount);
+  return d;
+}
+
+function getMonday(date: Date) {
+  const d = new Date(date);
+  const day = d.getDay(); // 0 = CN
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+const WEEKDAY_SHORT = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const WEEKDAY_FULL = [
+  'Chủ nhật',
+  'Thứ hai',
+  'Thứ ba',
+  'Thứ tư',
+  'Thứ năm',
+  'Thứ sáu',
+  'Thứ bảy',
+];
+
+function buildDateItem(date: Date) {
+  return {
+    date: formatDate(date),
+    day: WEEKDAY_SHORT[date.getDay()],
+    number: `${String(date.getDate()).padStart(2, '0')}/${String(
+      date.getMonth() + 1
+    ).padStart(2, '0')}`,
+  };
+}
+
+function getWeekItems(weekStart: Date) {
+  const items = [];
+  for (let i = 0; i < 7; i++) {
+    items.push(buildDateItem(addDays(weekStart, i)));
+  }
+  return items;
+}
+
+function getSectionDates(start: Date, count: number) {
+  const items: string[] = [];
+  for (let i = 0; i < count; i++) {
+    items.push(formatDate(addDays(start, i)));
+  }
+  return items;
+}
+
+function formatFullDateLabel(dateString: string) {
+  const date = parseDateStr(dateString);
+  return `${WEEKDAY_FULL[date.getDay()]}, ${date.getDate()} tháng ${date.getMonth() + 1
+    }`;
 }
 
 /* =========================================================
@@ -301,43 +394,6 @@ function isLiveMatch(match: FootballMatch) {
 }
 
 /* =========================================================
-   DATE ITEMS
-========================================================= */
-
-const DATE_RANGE_DAYS = 14;
-
-function getDateItems() {
-  const dates = [];
-
-  for (let i = 0; i < DATE_RANGE_DAYS; i++) {
-    const date = new Date();
-    date.setDate(date.getDate() + i);
-
-    const dateString = formatDate(date);
-
-    let day = '';
-
-    if (i === 0) {
-      day = 'Hôm nay';
-    } else if (i === 1) {
-      day = 'Ngày mai';
-    } else {
-      day = date.toLocaleDateString('vi-VN', { weekday: 'short' });
-    }
-
-    dates.push({
-      date: dateString,
-      day,
-      number: `${String(date.getDate()).padStart(2, '0')}/${String(
-        date.getMonth() + 1
-      ).padStart(2, '0')}`,
-    });
-  }
-
-  return dates;
-}
-
-/* =========================================================
    NORMALIZE MATCH
 ========================================================= */
 
@@ -353,16 +409,16 @@ function normalizeMatch(match: FootballDataMatch): FootballMatch {
       country: 'England',
       competition_name: match.season
         ? `${new Date(match.season.startDate).getFullYear()}-${new Date(
-            match.season.endDate
-          ).getFullYear()}`
+          match.season.endDate
+        ).getFullYear()}`
         : 'Premier League',
     },
 
     season: match.season
       ? {
-          season_id: String(match.season.id),
-          year: new Date(match.season.startDate).getFullYear(),
-        }
+        season_id: String(match.season.id),
+        year: new Date(match.season.startDate).getFullYear(),
+      }
       : undefined,
 
     home_team: {
@@ -388,23 +444,59 @@ function normalizeMatch(match: FootballDataMatch): FootballMatch {
    MATCH SECTION
 ========================================================= */
 
-function MatchSection() {
-  const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
-  const [fixtures, setFixtures] = useState<FootballMatch[]>([]);
+const MatchSection = forwardRef<
+  MatchSectionHandle,
+  {
+    scrollViewRef: React.RefObject<ScrollView | null>;
+    onSelectedDateChange?: (selected: string, today: string) => void;
+  }
+>(function MatchSection({ scrollViewRef, onSelectedDateChange }, ref) {
+  const today = useMemo(() => startOfDay(new Date()), []);
+  const todayStr = formatDate(today);
+
+  const [windowStart, setWindowStart] = useState(today);
+  const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [fixturesByDate, setFixturesByDate] = useState<
+    Record<string, FootballMatch[]>
+  >({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [liveNow, setLiveNow] = useState(false);
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const calendarBtnRef = useRef<View>(null);
+  const [calendarAnchorTop, setCalendarAnchorTop] = useState(96);
+  const [pendingScrollDate, setPendingScrollDate] = useState<string | null>(
+    null
+  );
 
-  const dateScrollRef = useRef<ScrollView>(null);
+  const dayRefs = useRef<Record<string, any>>({});
+
+  function openCalendar() {
+    calendarBtnRef.current?.measureInWindow((x, y, width, height) => {
+      setCalendarAnchorTop(y + height + 8);
+      setCalendarVisible(true);
+    });
+  }
+
+  const weekItems = useMemo(
+    () => getWeekItems(getMonday(windowStart)),
+    [windowStart]
+  );
+
+  const sectionDates = useMemo(
+    () => getSectionDates(getMonday(windowStart), WINDOW_DAYS),
+    [windowStart]
+  );
 
   /* =====================================================
-     FETCH
+     FETCH KHOẢNG NGÀY ĐANG XEM
   ===================================================== */
 
   useEffect(() => {
-    fetchFixtures(selectedDate);
-  }, [selectedDate]);
+    fetchWindow(windowStart);
+  }, [windowStart]);
 
-  async function fetchFixtures(date: string) {
+  async function fetchWindow(start: Date) {
     if (!FOOTBALL_DATA_API_KEY) {
       setError('Chưa tìm thấy EXPO_PUBLIC_FOOTBALL_DATA_API_KEY');
       return;
@@ -414,59 +506,54 @@ function MatchSection() {
       setLoading(true);
       setError(null);
 
+      const dateFrom = formatDate(start);
+      const dateTo = formatDate(addDays(start, WINDOW_DAYS - 1));
+
       const url =
         `${FOOTBALL_DATA_API_URL}` +
         `/competitions/${EPL_COMPETITION}/matches` +
-        `?dateFrom=${date}` +
-        `&dateTo=${date}`;
-
-      console.log('Football-data URL:', url);
+        `?dateFrom=${dateFrom}` +
+        `&dateTo=${dateTo}`;
 
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          'X-Auth-Token': FOOTBALL_DATA_API_KEY,
+          'X-Auth-Token': FOOTBALL_DATA_API_KEY as string,
           Accept: 'application/json',
         },
       });
 
       const data: FootballDataResponse = await response.json();
 
-      console.log('Football-data response:', data);
-
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${JSON.stringify(data)}`);
       }
 
       const events = Array.isArray(data.matches) ? data.matches : [];
-
-      console.log('Total matches:', events.length);
-
       const matches = events.map(normalizeMatch);
 
-      matches.sort(
-        (a, b) =>
-          new Date(a.match_date).getTime() - new Date(b.match_date).getTime()
+      const grouped: Record<string, FootballMatch[]> = {};
+
+      matches.forEach((match) => {
+        const dateKey = formatDate(new Date(match.match_date));
+        if (!grouped[dateKey]) grouped[dateKey] = [];
+        grouped[dateKey].push(match);
+      });
+
+      Object.values(grouped).forEach((list) =>
+        list.sort(
+          (a, b) =>
+            new Date(a.match_date).getTime() -
+            new Date(b.match_date).getTime()
+        )
       );
 
-      console.log(`Matches for ${date}:`, matches.length);
+      setFixturesByDate(grouped);
 
-      console.log(
-        'Matches:',
-        matches.map((match) => ({
-          id: match.match_id,
-          home: match.home_team.team_name,
-          away: match.away_team.team_name,
-          time: match.match_date,
-          status: match.status,
-        }))
-      );
-
-      setFixtures(matches);
+   
     } catch (err) {
       console.error('Football-data error:', err);
-
-      setFixtures([]);
+      setFixturesByDate({});
       setError(
         err instanceof Error ? err.message : 'Không thể tải lịch thi đấu'
       );
@@ -476,73 +563,178 @@ function MatchSection() {
   }
 
   /* =====================================================
+     CHECK LIVE (độc lập với ngày đang xem)
+  ===================================================== */
+
+  useEffect(() => {
+    if (!FOOTBALL_DATA_API_KEY) return;
+
+    let cancelled = false;
+
+    async function checkLive() {
+      try {
+        const url =
+          `${FOOTBALL_DATA_API_URL}` +
+          `/competitions/${EPL_COMPETITION}/matches` +
+          `?dateFrom=${todayStr}` +
+          `&dateTo=${todayStr}`;
+
+        const response = await fetch(url, {
+          headers: {
+            'X-Auth-Token': FOOTBALL_DATA_API_KEY as string,
+            Accept: 'application/json',
+          },
+        });
+
+        const data: FootballDataResponse = await response.json();
+        const events = Array.isArray(data.matches) ? data.matches : [];
+        const anyLive = events.some((m) => isLiveMatch(normalizeMatch(m)));
+
+        if (!cancelled) setLiveNow(anyLive);
+      } catch {
+        // lỗi mạng thì giữ nguyên trạng thái Live hiện tại
+      }
+    }
+
+    checkLive();
+    const interval = setInterval(checkLive, 60000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [todayStr]);
+
+  /* =====================================================
+     CUỘN TỚI NGÀY
+  ===================================================== */
+  function requestScroll(dateStr: string) {
+    requestAnimationFrame(() => {
+      const node = dayRefs.current[dateStr];
+      const scrollView = scrollViewRef?.current;
+
+      if (!node || !scrollView) return;
+
+      const nodeHandle = findNodeHandle(node);
+      const scrollHandle = findNodeHandle(scrollView);
+
+      if (nodeHandle == null || scrollHandle == null) return;
+
+      UIManager.measureLayout(
+        nodeHandle,
+        scrollHandle,
+        () => {
+          // đo lỗi -> bỏ qua, không cuộn
+        },
+        (_left: number, top: number) => {
+          scrollView.scrollTo({ y: Math.max(top - 12, 0), animated: true });
+        }
+      );
+    });
+  }
+
+  function scrollToDate(dateStr: string) {
+    setSelectedDate(dateStr);
+
+    if (sectionDates.includes(dateStr)) {
+      requestScroll(dateStr);
+      return;
+    }
+
+    // Ngày nằm ngoài khoảng đang tải -> dời khoảng tải về đúng ngày đó
+    setPendingScrollDate(dateStr);
+    setWindowStart(parseDateStr(dateStr));
+  }
+
+  useEffect(() => {
+    if (
+      pendingScrollDate &&
+      !loading &&
+      sectionDates.includes(pendingScrollDate)
+    ) {
+      requestScroll(pendingScrollDate);
+      setPendingScrollDate(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingScrollDate, sectionDates, loading]);
+
+  useEffect(() => {
+    onSelectedDateChange?.(selectedDate, todayStr);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
+
+  useImperativeHandle(ref, () => ({
+    scrollToToday: () => scrollToDate(todayStr),
+  }));
+
+  /* =====================================================
      RENDER
   ===================================================== */
 
   return (
     <View style={styles.matchesSection}>
-      {/* HEADER */}
-      <View style={styles.matchesHeader}>
-        <View style={styles.matchesTitleRow}>
-          <View style={styles.matchesTitleIcon}>
-            <Calendar size={17} color="#fff" />
-          </View>
-          <Text style={styles.matchesTitle}>Trận đấu</Text>
+      {/* TOP BAR: Live + Calendar + tuần hiện tại + Filter */}
+      <View style={styles.topBar}>
+        <View style={styles.liveBadge}>
+          <View style={[styles.liveDot, liveNow && styles.liveDotActive]} />
+          <Text style={[styles.liveText, liveNow && styles.liveTextActive]}>
+            Live
+          </Text>
         </View>
 
-        <Pressable style={styles.filterButton}>
-          <Filter size={15} color="#AFC0EE" />
-          <Text style={styles.filterText}>Bộ lọc</Text>
-          <ChevronDown size={14} color="#AFC0EE" />
+        <Pressable
+          ref={calendarBtnRef}
+          style={styles.calendarBtn}
+          onPress={openCalendar}
+        >
+          <Calendar size={16} color="#AFAFAF" />
         </Pressable>
-      </View>
 
-      {/* DATE */}
-      <ScrollView
-        ref={dateScrollRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.dateRow}
-      >
-        {getDateItems().map((item) => {
-          const active = item.date === selectedDate;
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.dateScroll}
+          contentContainerStyle={styles.dateScrollContent}
+        >
+          {weekItems.map((item) => {
+            const active = item.date === selectedDate;
+            const isToday = item.date === todayStr;
 
-          return (
-            <Pressable
-              key={item.date}
-              onPress={() => setSelectedDate(item.date)}
-              style={[styles.dateItem, active && styles.dateItemActive]}
-            >
-              <Text style={active ? styles.dateDayActive : styles.dateDay}>
-                {item.day}
-              </Text>
-              <Text
-                style={active ? styles.dateNumberActive : styles.dateNumber}
+            return (
+              <Pressable
+                key={item.date}
+                onPress={() => scrollToDate(item.date)}
+                style={[styles.dateTab, active && styles.dateTabActive]}
               >
-                {item.number}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+                <Text
+                  style={[
+                    styles.dateTabDay,
+                    active && styles.dateTabDayActive,
+                    isToday && styles.dateTabToday,
+                  ]}
+                >
+                  {item.day}
+                </Text>
+                <Text
+                  style={[
+                    styles.dateTabNumber,
+                    active && styles.dateTabNumberActive,
+                    isToday && styles.dateTabToday,
+                  ]}
+                >
+                  {item.number}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
-      {/* LEAGUE */}
-      <View style={styles.leagueHeader}>
-        <View style={styles.leagueLeft}>
-          <Image
-            source={{ uri: EPL_LOGO }}
-            style={styles.leagueLogo}
-            contentFit="contain"
-          />
-          <View>
-            <Text style={styles.leagueName}>Ngoại hạng Anh</Text>
-            <Text style={styles.leagueRound}>
-              {fixtures[0]?.league?.competition_name || 'Premier League'}
-            </Text>
-          </View>
-        </View>
+        <View style={styles.topBarDivider} />
 
-        <ChevronDown size={17} color="#7186B9" />
+        <Pressable style={styles.filterBtn}>
+          <Filter size={14} color="#AFAFAF" />
+          <Text style={styles.filterBtnText}>Lọc</Text>
+        </Pressable>
       </View>
 
       {/* LOADING */}
@@ -560,86 +752,113 @@ function MatchSection() {
         </View>
       )}
 
-      {/* EMPTY */}
-      {!loading && !error && fixtures.length === 0 && (
-        <View style={styles.emptyMatch}>
-          <Calendar size={24} color="#52699F" />
-          <Text style={styles.emptyMatchText}>Không có trận đấu nào</Text>
-          <Text style={styles.emptyMatchSubText}>
-            trong ngày {formatDisplayDate(selectedDate)}
-          </Text>
+      {/* DANH SÁCH NHIỀU NGÀY — chỉ in ra những ngày có trận, ngày trống bỏ qua */}
+      {!loading && !error && (
+        <View>
+          {(fixturesByDate[selectedDate]?.length ?? 0) === 0 && (
+            <Text style={styles.noScheduleText}>
+              Không có trận đấu nào diễn ra trong hôm nay
+            </Text>
+          )}
+
+          {sectionDates
+            .filter((dateStr) => (fixturesByDate[dateStr]?.length ?? 0) > 0)
+            .map((dateStr) => {
+              const dayMatches = fixturesByDate[dateStr] || [];
+
+              return (
+                <View
+                  key={dateStr}
+                  ref={(node) => {
+                    dayRefs.current[dateStr] = node;
+                  }}
+                >
+                  <Text style={styles.dayHeader}>
+                    {formatFullDateLabel(dateStr)}
+                  </Text>
+
+                  <View style={styles.matchList}>
+                    {dayMatches.map((match) => {
+                      const homeScore = match.score?.home;
+                      const awayScore = match.score?.away;
+                      const isLive = isLiveMatch(match);
+                      const hasScore =
+                        homeScore !== null && homeScore !== undefined;
+
+                      return (
+                        <Pressable
+                          key={match.match_id}
+                          style={styles.matchItem}
+                        >
+                          {/* TIME */}
+                          <View style={styles.matchTime}>
+                            <Text style={styles.matchTimeText}>
+                              {formatMatchTime(match.match_date)}
+                            </Text>
+                            {isLive && (
+                              <Text style={styles.matchStatusLive}>
+                                Đang đá
+                              </Text>
+                            )}
+                          </View>
+
+                          {/* TEAMS */}
+                          <View style={styles.teamsContainer}>
+                            <View style={styles.teamRow}>
+                              <Image
+                                source={{ uri: match.home_team.team_logo }}
+                                style={styles.teamLogo}
+                                contentFit="contain"
+                              />
+                              <Text style={styles.teamName} numberOfLines={1}>
+                                {match.home_team.team_name}
+                              </Text>
+                              {hasScore && (
+                                <Text style={styles.teamScore}>
+                                  {homeScore}
+                                </Text>
+                              )}
+                            </View>
+
+                            <View style={styles.teamRow}>
+                              <Image
+                                source={{ uri: match.away_team.team_logo }}
+                                style={styles.teamLogo}
+                                contentFit="contain"
+                              />
+                              <Text style={styles.teamName} numberOfLines={1}>
+                                {match.away_team.team_name}
+                              </Text>
+                              {hasScore && (
+                                <Text style={styles.teamScore}>
+                                  {awayScore}
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })}
         </View>
       )}
 
-      {/* MATCH LIST */}
-      {!loading && !error && fixtures.length > 0 && (
-        <View style={styles.matchList}>
-          {fixtures.map((match) => {
-            const homeScore = match.score?.home;
-            const awayScore = match.score?.away;
-            const status = getMatchStatus(match.status);
-            const isLive = isLiveMatch(match);
-
-            return (
-              <Pressable key={match.match_id} style={styles.matchItem}>
-                {/* TIME */}
-                <View style={styles.matchTime}>
-                  <Text style={styles.matchTimeText}>
-                    {formatMatchTime(match.match_date)}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.matchStatus,
-                      isLive && styles.matchStatusLive,
-                    ]}
-                  >
-                    {status}
-                  </Text>
-                </View>
-
-                {/* TEAMS */}
-                <View style={styles.teamsContainer}>
-                  {/* HOME */}
-                  <View style={styles.teamRow}>
-                    <Image
-                      source={{ uri: match.home_team.team_logo }}
-                      style={styles.teamLogo}
-                      contentFit="contain"
-                    />
-                    <Text style={styles.teamName} numberOfLines={1}>
-                      {match.home_team.team_name}
-                    </Text>
-                    <Text style={styles.teamScore}>{homeScore ?? '-'}</Text>
-                  </View>
-
-                  {/* AWAY */}
-                  <View style={styles.teamRow}>
-                    <Image
-                      source={{ uri: match.away_team.team_logo }}
-                      style={styles.teamLogo}
-                      contentFit="contain"
-                    />
-                    <Text style={styles.teamName} numberOfLines={1}>
-                      {match.away_team.team_name}
-                    </Text>
-                    <Text style={styles.teamScore}>{awayScore ?? '-'}</Text>
-                  </View>
-                </View>
-
-                {/* ARROW */}
-                <ChevronLeft
-                  size={18}
-                  color="#52699F"
-                  style={styles.matchArrow}
-                />
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
+      {/* MODAL CHỌN NGÀY — tách riêng ở CalendarPickerModal.tsx */}
+      <CalendarPickerModal
+        visible={calendarVisible}
+        onClose={() => setCalendarVisible(false)}
+        selectedDate={selectedDate}
+        onSelectDate={scrollToDate}
+        minDate={todayStr}
+        maxDate={formatDate(addDays(today, CALENDAR_PICK_DAYS - 1))}
+        anchorTop={calendarAnchorTop}
+      />
     </View>
   );
-}
+});
 
 /* =========================================================
    SPORTS HEADER
@@ -647,8 +866,62 @@ function MatchSection() {
 
 export function SportsHeader() {
   const router = useRouter();
+  const scrollViewRef = useRef<ScrollView>(null);
+  const matchSectionRef = useRef<MatchSectionHandle>(null);
 
   const [tab, setTab] = useState<'tong-hop' | 'epl' | 'vleague'>('epl');
+  const [showBackToToday, setShowBackToToday] = useState(false);
+
+  // Popover 2: mở từ nút "..." — Bảng xếp hạng / Truyền hình
+  const [moreMenuVisible, setMoreMenuVisible] = useState(false);
+  const [moreMenuAnchor, setMoreMenuAnchor] = useState({ top: 50, right: 44 });
+  const moreMenuBtnRef = useRef<View>(null);
+
+  // Đo vị trí thật của nút bấm trên màn hình rồi đặt popover ngay dưới nó,
+  // thay vì đoán toạ độ cố định (toạ độ cố định dễ bị lệch do chiều cao
+  // status bar khác nhau giữa các máy).
+  function openPopoverBelow(
+    btnRef: React.RefObject<View | null>,
+    setAnchor: (anchor: { top: number; right: number }) => void,
+    setVisible: (v: boolean) => void
+  ) {
+    btnRef.current?.measureInWindow((x, y, width, height) => {
+      setAnchor({
+        top: y + height + 8,
+        right: Math.max(SCREEN_WIDTH - (x + width), 8),
+      });
+      setVisible(true);
+    });
+  }
+  const scheduleMenuItems: MenuPopoverItem[] = [
+    {
+      key: 'xep-hang',
+      label: 'Xếp hạng',
+      icon: <Building2 size={16} color="#fff" />,
+      onPress: () => router.push('/ganhthethao/standings'),
+    },
+    {
+      key: 'truyen-hinh',
+      label: 'Truyền hình',
+      icon: <Tv size={16} color="#fff" />,
+      onPress: () => router.push('/ganhthethao/tv-schedule'),
+    },
+  ];
+
+  const moreMenuItems: MenuPopoverItem[] = [
+    {
+      key: 'bang-xep-hang',
+      label: 'Bảng xếp hạng',
+      icon: <Building2 size={20} color="#fff" />,
+      onPress: () => router.push('/ganhthethao/standings'),
+    },
+    {
+      key: 'truyen-hinh',
+      label: 'Truyền hình',
+      icon: <Tv size={20} color="#fff" />,
+      onPress: () => router.push('/ganhthethao/tv-schedule'),
+    },
+  ];
 
   return (
     <View style={styles.wrapper}>
@@ -661,9 +934,24 @@ export function SportsHeader() {
 
           <Text style={styles.headerTitle}>Thể thao</Text>
 
-          <Pressable style={styles.iconBtn}>
-            <Search size={20} color="#fff" />
-          </Pressable>
+          <View style={styles.headerRightGroup}>
+            <Pressable
+              ref={moreMenuBtnRef}
+              style={styles.iconBtn}
+              onPress={() =>
+                openPopoverBelow(
+                  moreMenuBtnRef,
+                  setMoreMenuAnchor,
+                  setMoreMenuVisible
+                )
+              }
+            >
+              <MoreHorizontal size={20} color="#fff" />
+            </Pressable>
+            <Pressable style={styles.iconBtn}>
+              <Search size={20} color="#fff" />
+            </Pressable>
+          </View>
         </View>
 
         {/* TABS */}
@@ -696,22 +984,58 @@ export function SportsHeader() {
             onPress={() => setTab('vleague')}
           />
 
-          <Pressable style={styles.menuBtn}>
+          <Pressable
+
+            style={styles.menuBtn}
+
+          >
             <Menu size={18} color="#fff" />
           </Pressable>
         </View>
       </SafeAreaView>
 
-      {/* CAROUSEL */}
-     <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollViewRef} showsVerticalScrollIndicator={false}>
         {/* CAROUSEL */}
         <View style={styles.carouselWrap}>
           <MatchCardCarousel />
         </View>
 
         {/* MATCHES */}
-        <MatchSection />
+        <MatchSection
+          ref={matchSectionRef}
+          scrollViewRef={scrollViewRef}
+          onSelectedDateChange={(selected, today) =>
+            setShowBackToToday(selected !== today)
+          }
+        />
       </ScrollView>
+
+      {/* QUAY LẠI HÔM NAY */}
+      {showBackToToday && (
+        <Pressable
+          style={styles.backToTodayBtn}
+          onPress={() => matchSectionRef.current?.scrollToToday()}
+        >
+          <History size={14} color="#0A1642" />
+          <Text style={styles.backToTodayText}>Quay lại hôm nay</Text>
+        </Pressable>
+      )}
+
+      {/* THANH CỐ ĐỊNH: Lịch đấu / Xếp hạng — luôn hiện, không chặn scroll */}
+      <View pointerEvents="box-none" style={styles.scheduleBarWrap}>
+        <View style={styles.scheduleBar}>
+          {scheduleMenuItems.map((item, index) => (
+            <Pressable
+              key={item.key}
+              style={[styles.scheduleItem, index > 0 && styles.scheduleItemDivider]}
+              onPress={item.onPress}
+            >
+              <View style={styles.scheduleIconWrap}>{item.icon}</View>
+              <Text style={styles.scheduleLabel}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
     </View>
   );
 }
@@ -722,8 +1046,8 @@ export function SportsHeader() {
 
 const styles = StyleSheet.create({
   wrapper: {
-     flex: 1,
-    backgroundColor: '#0A1642',
+    flex: 1,
+    backgroundColor: '#0A0A0F',
   },
 
   safeArea: {
@@ -736,6 +1060,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
+  },
+
+  headerRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 
   headerTitle: {
@@ -858,176 +1187,166 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
 
-  matchesHeader: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-
-  matchesTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    marginBottom: 6,
     gap: 8,
   },
 
-  matchesTitleIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    backgroundColor: '#22347A',
+  liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#4A4A55',
+  },
+
+  liveDotActive: {
+    backgroundColor: '#FF4D4D',
+  },
+
+  liveText: {
+    color: '#6B6B75',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  liveTextActive: {
+    color: '#FF4D4D',
+  },
+
+  calendarBtn: {
+    width: 26,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  matchesTitle: {
+  dateScroll: {
+    flex: 1,
+  },
+
+  dateScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+
+  dateTab: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+
+  dateTabActive: {
+    backgroundColor: '#1C1C22',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+
+  dateTabDay: {
+    color: '#8A8A93',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  dateTabDayActive: {
     color: '#fff',
-    fontSize: 18,
     fontWeight: '800',
   },
 
-  filterButton: {
+  dateTabNumber: {
+    color: '#5C5C66',
+    fontSize: 9,
+    marginTop: 1,
+  },
+
+  dateTabNumberActive: {
+    color: '#C9C9D1',
+    fontSize: 9,
+    marginTop: 1,
+  },
+
+  dateTabToday: {
+    color: '#FF6B57',
+  },
+
+  topBarDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 20,
+    backgroundColor: '#33333B',
+  },
+
+  filterBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: '#152A62',
   },
 
-  filterText: {
-    color: '#AFC0EE',
-    fontSize: 11,
+  filterBtnText: {
+    color: '#AFAFAF',
+    fontSize: 12,
     fontWeight: '600',
   },
 
-  dateRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
-    paddingRight: 4,
-  },
-
-  dateItem: {
-    width: 62,
-    minHeight: 54,
-    borderRadius: 12,
-    backgroundColor: '#152A62',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-
-  dateItemActive: {
-    backgroundColor: '#22347A',
-    borderColor: '#4D96FF',
-  },
-
-  dateDay: {
-    color: '#7186B9',
-    fontSize: 10,
+  dayHeader: {
+    color: '#8A8A93',
+    fontSize: 12,
     fontWeight: '600',
-    marginBottom: 3,
+    marginTop: 18,
+    marginBottom: 10,
   },
 
-  dateNumber: {
-    color: '#AFC0EE',
+  noMatchText: {
+    color: '#5C5C66',
     fontSize: 12,
-    fontWeight: '700',
-  },
-
-  dateDayActive: {
-    color: '#8FB8FF',
-    fontSize: 10,
-    fontWeight: '700',
-    marginBottom: 3,
-  },
-
-  dateNumberActive: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-
-  leagueHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#152A62',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopLeftRadius: 13,
-    borderTopRightRadius: 13,
-  },
-
-  leagueLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-  },
-
-  leagueLogo: {
-    width: 28,
-    height: 28,
-  },
-
-  leagueName: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-
-  leagueRound: {
-    color: '#7186B9',
-    fontSize: 9,
-    marginTop: 2,
+    marginBottom: 4,
   },
 
   matchList: {
-    backgroundColor: '#111F50',
-    borderBottomLeftRadius: 13,
-    borderBottomRightRadius: 13,
-    overflow: 'hidden',
+    gap: 10,
   },
 
   matchItem: {
-    minHeight: 82,
+    minHeight: 78,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#263A70',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: '#1A1A20',
   },
 
   matchTime: {
-    width: 62,
-    alignItems: 'center',
+    width: 46,
+    alignItems: 'flex-start',
     justifyContent: 'center',
   },
 
   matchTimeText: {
     color: '#fff',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-
-  matchStatus: {
-    color: '#7186B9',
-    fontSize: 8,
-    marginTop: 4,
+    fontSize: 14,
+    fontWeight: '700',
   },
 
   matchStatusLive: {
     color: '#FF5C5C',
+    fontSize: 9,
     fontWeight: '800',
+    marginTop: 4,
   },
 
   teamsContainer: {
     flex: 1,
-    gap: 6,
-    marginLeft: 5,
+    gap: 10,
+    marginLeft: 10,
   },
 
   teamRow: {
@@ -1037,16 +1356,16 @@ const styles = StyleSheet.create({
   },
 
   teamLogo: {
-    width: 25,
-    height: 25,
-    marginRight: 8,
+    width: 22,
+    height: 22,
+    marginRight: 10,
   },
 
   teamName: {
     flex: 1,
-    color: '#DCE6FF',
-    fontSize: 11,
-    fontWeight: '600',
+    color: '#E4E4E4',
+    fontSize: 13,
+    fontWeight: '500',
   },
 
   teamScore: {
@@ -1057,18 +1376,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  matchArrow: {
-    transform: [{ rotate: '180deg' }],
-    marginLeft: 5,
-  },
-
   emptyMatch: {
     backgroundColor: '#111F50',
     minHeight: 120,
     alignItems: 'center',
     justifyContent: 'center',
-    borderBottomLeftRadius: 13,
-    borderBottomRightRadius: 13,
+    borderRadius: 13,
     paddingHorizontal: 20,
   },
 
@@ -1080,10 +1393,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  emptyMatchSubText: {
-    color: '#52699F',
-    fontSize: 10,
-    marginTop: 4,
+  noScheduleText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 14,
+    marginBottom: 8,
+    textAlign: 'center',
   },
 
   errorText: {
@@ -1091,6 +1407,81 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: 'center',
     marginTop: 8,
+  },
+
+  /* =================================================
+     BACK TO TODAY
+  ================================================= */
+
+  backToTodayBtn: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F5F5F5',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+
+  backToTodayText: {
+    color: '#0A1642',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  scheduleBarWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    zIndex: 20,
+  },
+
+  scheduleBar: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(28,28,34,0.96)',
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+
+  scheduleItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    gap: 3,
+  },
+
+  scheduleItemDivider: {
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: 'rgba(255,255,255,0.15)',
+  },
+
+  scheduleIconWrap: {
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  scheduleLabel: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
   },
 });
 
