@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -10,6 +11,7 @@ import {
   Dimensions,
   findNodeHandle,
   FlatList,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,9 +21,12 @@ import {
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
+import * as NavigationBar from 'expo-navigation-bar';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 import {
   Building2,
@@ -909,6 +914,20 @@ export function SportsHeader() {
   const [moreMenuAnchor, setMoreMenuAnchor] = useState({ top: 50, right: 44 });
   const moreMenuBtnRef = useRef<View>(null);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS === 'web') return;
+
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      ).catch(() => {});
+
+      if (Platform.OS === 'android') {
+        NavigationBar.setVisibilityAsync('visible').catch(() => {});
+      }
+    }, [])
+  );
+
   // Đo vị trí thật của nút bấm trên màn hình rồi đặt popover ngay dưới nó,
   // thay vì đoán toạ độ cố định (toạ độ cố định dễ bị lệch do chiều cao
   // status bar khác nhau giữa các máy).
@@ -957,10 +976,11 @@ export function SportsHeader() {
 
   return (
     <View style={styles.wrapper}>
+      <StatusBar style="light" hidden={false} />
       <SafeAreaView edges={['top']} style={styles.safeArea}>
         {/* HEADER */}
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+          <Pressable onPress={() => router.replace('/intro')} style={styles.iconBtn}>
             <ChevronLeft size={22} color="#fff" />
           </Pressable>
 

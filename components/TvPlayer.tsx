@@ -28,6 +28,14 @@ export default function TvPlayer({ channel, onClose }: Props) {
 		};
 	}, []);
 
+	const closePlayer = async () => {
+		if (Platform.OS !== 'web') {
+			await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+		}
+		if (Platform.OS === 'android') await NavigationBar.setVisibilityAsync('visible').catch(() => {});
+		onClose();
+	};
+
 	useEffect(() => {
 		const timer = setTimeout(() => setChromeVisible(false), 3500);
 		return () => clearTimeout(timer);
@@ -45,6 +53,7 @@ export default function TvPlayer({ channel, onClose }: Props) {
 			const data = JSON.parse(event.nativeEvent.data);
 			if (data.type === 'error') setError(data.msg || 'Không thể phát kênh');
 			if (data.type === 'controls_visibility') setChromeVisible(data.msg === 'true');
+			if (data.type === 'close_player') closePlayer();
 		} catch {}
 	};
 
@@ -77,9 +86,9 @@ export default function TvPlayer({ channel, onClose }: Props) {
 				onError={() => setError('Không thể tải player')}
 			/>}
 		</View>
-		{chromeVisible && <>
+		{chromeVisible && useNative && <>
 			<View style={styles.topBar}>
-				<Pressable style={styles.iconButton} onPress={onClose}><X size={22} color="#fff" /></Pressable>
+				<Pressable style={styles.iconButton} onPress={closePlayer}><X size={22} color="#fff" /></Pressable>
 				<Text style={styles.title} numberOfLines={1}>{channel.name}</Text>
 				<View style={styles.headerSpacer} />
 			</View>

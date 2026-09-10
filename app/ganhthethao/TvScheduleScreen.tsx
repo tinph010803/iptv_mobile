@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Image, Modal, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, Modal, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import * as NavigationBar from 'expo-navigation-bar';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { ChevronLeft, Heart, LockKeyhole, Plus, Search, Tv, X } from 'lucide-react-native';
 import { Channel, PlaylistSource } from '@/types/iptv';
 import { parseM3U } from '@/utils/m3uParser';
@@ -20,6 +23,21 @@ export function TvScheduleScreen() {
   const [modal, setModal] = useState(false);
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS === 'web') return;
+
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      ).catch(() => {});
+
+      if (Platform.OS === 'android') {
+        NavigationBar.setVisibilityAsync('visible').catch(() => {});
+      }
+    }, [])
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
@@ -53,6 +71,7 @@ export function TvScheduleScreen() {
   const addSource = async () => { if (!name.trim() || !url.trim()) return; const saved = await saveIptvSource(name.trim(), url.trim()); setName(''); setUrl(''); setModal(false); setSources(saved); setSelectedSourceId(saved[saved.length - 1]?.id ?? null); };
 
   return <SafeAreaView style={styles.wrapper} edges={['top']}>
+    <StatusBar style="light" hidden={false} />
     <View style={styles.header}><Pressable onPress={() => router.back()}><ChevronLeft size={24} color="#fff" /></Pressable><View style={styles.heading}><Tv size={20} color="#7dd3fc" /><Text style={styles.headerTitle}>Truyền hình</Text></View><Pressable onPress={() => setModal(true)}><Plus size={23} color="#fff" /></Pressable></View>
     <View style={styles.search}><Search size={18} color="#888894" /><TextInput value={query} onChangeText={setQuery} placeholder="Tìm kênh truyền hình" placeholderTextColor="#777784" style={styles.input} /></View>
     {sources.length > 0 && <FlatList style={styles.chipList} horizontal data={sources} keyExtractor={(item) => item.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sources} renderItem={({ item }) => <Pressable onPress={() => setSelectedSourceId(item.id)} style={[styles.source, item.id === selectedSourceId && styles.activeSource]}><Tv size={14} color={item.id === selectedSourceId ? '#fff' : '#7dd3fc'} /><Text style={[styles.sourceText, item.id === selectedSourceId && styles.activeSourceText]} numberOfLines={1}>{item.name}</Text></Pressable>} />}

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { InteractionManager, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { ArrowRight } from 'lucide-react-native';
+import { ArrowRight, Delete } from 'lucide-react-native';
 import { WebView } from 'react-native-webview';
 
 type FeatureCardProps = {
@@ -81,8 +81,6 @@ function FeatureCard({
 const LOGOS = {
     ganhGiaiTri: 'https://img.upanhnhanh.com/d8d7ada8c26081ef68c5f6af04d61982',
     ganhPhim: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775885578/ganhcinema_lwwhwy.png',
-    // ganhPhim: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1786077846/upflix-removebg-preview_dsnd1z.png',
-    // ganhPhim2: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775885578/ganhcinema_lwwhwy.png',
     ganhPhim2: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1786077846/upflix-removebg-preview_dsnd1z.png',
     onflix: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775905493/logoonflix_bg8k3v.png',
     motchilltv: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775905558/logo_mx7bjo.png',
@@ -102,6 +100,13 @@ const BACKGROUNDS = {
 
 const SPORTS_GATE_IMAGE = 'https://img.upanhnhanh.com/9ecfcd2828e9c2b6ba2084d1ebe86e56';
 const GANH3D_LOCKED_USER_KEY = '@ganh3d_locked_user_v1';
+
+// ---- App passcode lock config ----
+const APP_PASSCODE = '1818';
+const PASSCODE_LENGTH = 4;
+// Key dùng để lưu trạng thái "đã mở khóa" vào bộ nhớ máy, để chỉ hỏi mật khẩu
+// ở lần đầu tiên mở app; những lần mở app sau đó sẽ không hỏi lại nữa.
+const APP_UNLOCKED_KEY = '@app_unlocked_v1';
 
 const GANH3D_PROFILES = [
     {
@@ -145,9 +150,105 @@ const CINEMA_PROFILES = [
     },
 ] as const;
 
+// ---- Passcode lock screen ----
+type PasscodeScreenProps = {
+    pinInput: string;
+    pinError: boolean;
+    onPressDigit: (digit: string) => void;
+    onBackspace: () => void;
+};
+
+function PasscodeScreen({ pinInput, pinError, onPressDigit, onBackspace }: PasscodeScreenProps) {
+    const keypadRows: Array<Array<{ label: string; value: string } | null>> = [
+        [
+            { label: '1', value: '1' },
+            { label: '2', value: '2' },
+            { label: '3', value: '3' },
+        ],
+        [
+            { label: '4', value: '4' },
+            { label: '5', value: '5' },
+            { label: '6', value: '6' },
+        ],
+        [
+            { label: '7', value: '7' },
+            { label: '8', value: '8' },
+            { label: '9', value: '9' },
+        ],
+        [null, { label: '0', value: '0' }, null],
+    ];
+
+    return (
+        <SafeAreaView style={styles.lockSafeArea}>
+            <LinearGradient
+                colors={['#0A1436', '#0A1A47', '#0B1F56']}
+                start={{ x: 0.1, y: 0 }}
+                end={{ x: 0.9, y: 1 }}
+                style={styles.lockContainer}
+            >
+                <Image source={{ uri: LOGOS.ganhGiaiTri }} style={styles.lockBrandImage} contentFit="contain" />
+
+                <Text style={styles.lockTitle}>Nhập mật khẩu</Text>
+                <Text style={pinError ? styles.lockSubtitleError : styles.lockSubtitle}>
+                    {pinError ? 'Mật khẩu không đúng, vui lòng thử lại' : 'Nhập mã để tiếp tục vào ứng dụng'}
+                </Text>
+
+                <View style={styles.lockDotsRow}>
+                    {Array.from({ length: PASSCODE_LENGTH }).map((_, index) => {
+                        const filled = index < pinInput.length;
+                        return (
+                            <View
+                                key={index}
+                                style={[
+                                    styles.lockDot,
+                                    filled && styles.lockDotFilled,
+                                    pinError && styles.lockDotError,
+                                ]}
+                            />
+                        );
+                    })}
+                </View>
+
+                <View style={styles.lockKeypad}>
+                    {keypadRows.map((row, rowIndex) => (
+                        <View key={rowIndex} style={styles.lockKeypadRow}>
+                            {row.map((digitKey, keyIndex) => {
+                                if (!digitKey) {
+                                    return <View key={`spacer-${rowIndex}-${keyIndex}`} style={styles.lockKeySpacer} />;
+                                }
+                                return (
+                                    <Pressable
+                                        key={digitKey.value}
+                                        onPress={() => onPressDigit(digitKey.value)}
+                                        style={({ pressed }) => [styles.lockKeyBtn, pressed && styles.lockKeyBtnPressed]}
+                                    >
+                                        <Text style={styles.lockKeyText}>{digitKey.label}</Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+                    ))}
+
+                    <View style={styles.lockKeypadRow}>
+                        <View style={styles.lockKeySpacer} />
+                        <View style={styles.lockKeySpacer} />
+                        <Pressable
+                            onPress={onBackspace}
+                            style={({ pressed }) => [styles.lockKeyBtn, styles.lockKeyBtnGhost, pressed && styles.lockKeyBtnPressed]}
+                        >
+                            <Delete size={22} color="#EBF1FF" />
+                        </Pressable>
+                    </View>
+                </View>
+            </LinearGradient>
+        </SafeAreaView>
+    );
+}
+
 export default function IntroScreen() {
     const router = useRouter();
     const scrollRef = useRef<ScrollView>(null);
+    const [layoutKey, setLayoutKey] = useState(0);
     const [activeTab, setActiveTab] = useState<'home' | 'terms' | 'license'>('home');
     const [openDocId, setOpenDocId] = useState<'good-standing' | 'business' | null>(null);
     const [showSportsGate, setShowSportsGate] = useState(false);
@@ -155,6 +256,82 @@ export default function IntroScreen() {
     const [showCinemaGate, setShowCinemaGate] = useState(false);
     const [showGanh18Gate, setShowGanh18Gate] = useState(false);
     const [lockedGanh3dUser, setLockedGanh3dUser] = useState<string | null>(null);
+
+    // ---- Passcode lock state ----
+    // isUnlocked bắt đầu là false. Ta kiểm tra AsyncStorage một lần khi app mount:
+    // nếu trước đó người dùng đã từng nhập đúng mật khẩu, ta set isUnlocked = true
+    // luôn mà không hỏi lại. isCheckingLock giữ màn hình "trống" trong lúc chờ
+    // đọc AsyncStorage, để tránh việc màn hình nhập mật khẩu bị chớp (flash) lên
+    // rồi biến mất ngay sau đó.
+    const [isUnlocked, setIsUnlocked] = useState(false);
+    const [isCheckingLock, setIsCheckingLock] = useState(true);
+    const [pinInput, setPinInput] = useState('');
+    const [pinError, setPinError] = useState(false);
+
+    useEffect(() => {
+        AsyncStorage.getItem(APP_UNLOCKED_KEY)
+            .then((value) => {
+                if (value === '1') {
+                    setIsUnlocked(true);
+                }
+            })
+            .catch(() => {})
+            .finally(() => {
+                setIsCheckingLock(false);
+            });
+    }, []);
+
+    const handlePressDigit = (digit: string) => {
+        if (pinInput.length >= PASSCODE_LENGTH) return;
+
+        const next = pinInput + digit;
+        setPinInput(next);
+        setPinError(false);
+
+        if (next.length === PASSCODE_LENGTH) {
+            if (next === APP_PASSCODE) {
+                setTimeout(() => {
+                    setIsUnlocked(true);
+                    // Lưu lại trạng thái đã mở khóa để những lần mở app sau
+                    // không hỏi lại mật khẩu nữa.
+                    AsyncStorage.setItem(APP_UNLOCKED_KEY, '1').catch(() => {});
+                }, 120);
+            } else {
+                setPinError(true);
+                setTimeout(() => {
+                    setPinInput('');
+                    setPinError(false);
+                }, 450);
+            }
+        }
+    };
+
+    const handleBackspace = () => {
+        setPinInput((prev) => prev.slice(0, -1));
+        setPinError(false);
+    };
+
+    useFocusEffect(
+        useMemo(
+            () => () => {
+                let focused = true;
+                const task = InteractionManager.runAfterInteractions(() => {
+                    if (!focused) return;
+
+                    setLayoutKey((value) => value + 1);
+                    requestAnimationFrame(() => {
+                        scrollRef.current?.scrollTo({ y: 0, animated: false });
+                    });
+                });
+
+                return () => {
+                    focused = false;
+                    task.cancel();
+                };
+            },
+            []
+        )
+    );
     const currentDate = useMemo(() => {
         const now = new Date();
         const day = String(now.getDate()).padStart(2, '0');
@@ -188,7 +365,6 @@ export default function IntroScreen() {
             router.replace('/(tabs)' as any);
             return;
         }
-
 
         if (profileId === 'onflix') {
             router.push('/onflix' as any);
@@ -225,6 +401,32 @@ export default function IntroScreen() {
         });
     };
 
+    // ---- Trong lúc đang kiểm tra AsyncStorage, hiển thị nền trống (tránh chớp màn hình) ----
+    if (isCheckingLock) {
+        return (
+            <SafeAreaView style={styles.lockSafeArea}>
+                <LinearGradient
+                    colors={['#0A1436', '#0A1A47', '#0B1F56']}
+                    start={{ x: 0.1, y: 0 }}
+                    end={{ x: 0.9, y: 1 }}
+                    style={styles.lockContainer}
+                />
+            </SafeAreaView>
+        );
+    }
+
+    // ---- Chỉ hiện màn hình nhập mật khẩu khi chưa từng mở khóa trước đó ----
+    if (!isUnlocked) {
+        return (
+            <PasscodeScreen
+                pinInput={pinInput}
+                pinError={pinError}
+                onPressDigit={handlePressDigit}
+                onBackspace={handleBackspace}
+            />
+        );
+    }
+
     return (
         <SafeAreaView style={styles.safeArea}>
             <LinearGradient
@@ -233,7 +435,7 @@ export default function IntroScreen() {
                 end={{ x: 0.9, y: 1 }}
                 style={styles.container}
             >
-                <ScrollView ref={scrollRef} style={styles.scrollArea} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+                <ScrollView key={layoutKey} ref={scrollRef} style={styles.scrollArea} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                     <View style={styles.header}>
                         <Image source={{ uri: LOGOS.ganhGiaiTri }} style={styles.brandImage} contentFit="contain" contentPosition="left" />
                     </View>
@@ -316,10 +518,6 @@ export default function IntroScreen() {
                                     backgroundImage={BACKGROUNDS.thanhGanhManga}
                                     disabled
                                 />
-
-
-
-
                             </View>
                         </>
                     ) : activeTab === 'terms' ? (
@@ -481,7 +679,6 @@ export default function IntroScreen() {
                         <Text style={[styles.menuText, activeTab === 'license' && styles.menuTextActive]}>Giấy phép</Text>
                     </Pressable>
                 </View>
-
 
                 {showCinemaGate ? (
                     <View style={styles.cinemaGateOverlay}>
@@ -1223,5 +1420,97 @@ const styles = StyleSheet.create({
         color: '#D0D5E2',
         fontSize: 15,
         fontWeight: '700',
+    },
+
+    // ---- Passcode lock screen styles ----
+    lockSafeArea: {
+        flex: 1,
+        backgroundColor: '#0A1436',
+    },
+    lockContainer: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 24,
+    },
+    lockBrandImage: {
+        width: 220,
+        height: 60,
+        marginBottom: 28,
+    },
+    lockTitle: {
+        color: '#F3F7FF',
+        fontSize: 20,
+        fontWeight: '800',
+        marginBottom: 6,
+    },
+    lockSubtitle: {
+        color: '#AAB7DC',
+        fontSize: 13,
+        marginBottom: 28,
+        textAlign: 'center',
+    },
+    lockSubtitleError: {
+        color: '#F0716F',
+        fontSize: 13,
+        marginBottom: 28,
+        textAlign: 'center',
+        fontWeight: '700',
+    },
+    lockDotsRow: {
+        flexDirection: 'row',
+        gap: 18,
+        marginBottom: 40,
+    },
+    lockDot: {
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        borderWidth: 1.5,
+        borderColor: '#7E93C9',
+        backgroundColor: 'transparent',
+    },
+    lockDotFilled: {
+        backgroundColor: '#EBF1FF',
+        borderColor: '#EBF1FF',
+    },
+    lockDotError: {
+        borderColor: '#F0716F',
+        backgroundColor: '#F0716F',
+    },
+    lockKeypad: {
+        width: '100%',
+        maxWidth: 300,
+        gap: 18,
+    },
+    lockKeypadRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+    lockKeyBtn: {
+        width: 74,
+        height: 74,
+        borderRadius: 37,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(235, 241, 255, 0.08)',
+        borderWidth: 1,
+        borderColor: 'rgba(235, 241, 255, 0.14)',
+    },
+    lockKeyBtnGhost: {
+        backgroundColor: 'transparent',
+        borderColor: 'transparent',
+    },
+    lockKeyBtnPressed: {
+        opacity: 0.7,
+    },
+    lockKeySpacer: {
+        width: 74,
+        height: 74,
+    },
+    lockKeyText: {
+        color: '#F3F7FF',
+        fontSize: 26,
+        fontWeight: '600',
     },
 });

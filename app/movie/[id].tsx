@@ -286,31 +286,6 @@ export default function MovieDetailScreen() {
   }, [movie?.slug]);
 
   useEffect(() => {
-    if (!movie || serverMachines.length === 0) return;
-
-    if (didInitSourceSelection.current) return;
-
-    const preferredMachineIdx = (() => {
-      const kkIdx = serverMachines.findIndex((machine) => machine.provider === 'KK');
-      if (kkIdx !== -1) return kkIdx;
-
-      const multiSourceIdx = serverMachines.findIndex((machine) => machine.serverIndexes.length > 1);
-      if (multiSourceIdx !== -1) return multiSourceIdx;
-
-      const opIdx = serverMachines.findIndex((machine) => machine.provider === 'OP');
-      if (opIdx !== -1) return opIdx;
-
-      return 0;
-    })();
-
-    setSelectedMachineIdx(preferredMachineIdx);
-    setSelectedServerIdx(serverMachines[preferredMachineIdx]?.serverIndexes[0] ?? 0);
-    setSelectedEpisodeChunkIdx(0);
-    setServerDropdownOpen(false);
-    didInitSourceSelection.current = true;
-  }, [movie, id, serverMachines]);
-
-  useEffect(() => {
     if (movie?.slug !== 'tho-oi' && movie?.slug !== 'cuu-2026') return;
     const htIdx = serverMachines.findIndex(m => m.provider === 'HT');
     if (htIdx !== -1) {
@@ -378,6 +353,31 @@ export default function MovieDetailScreen() {
       serverIndexes: value.serverIndexes,
     }));
   }, [movieServers]);
+
+  useEffect(() => {
+    if (!movie || serverMachines.length === 0) return;
+
+    if (didInitSourceSelection.current) return;
+
+    const preferredMachineIdx = (() => {
+      const kkIdx = serverMachines.findIndex((machine) => machine.provider === 'KK');
+      if (kkIdx !== -1) return kkIdx;
+
+      const multiSourceIdx = serverMachines.findIndex((machine) => machine.serverIndexes.length > 1);
+      if (multiSourceIdx !== -1) return multiSourceIdx;
+
+      const opIdx = serverMachines.findIndex((machine) => machine.provider === 'OP');
+      if (opIdx !== -1) return opIdx;
+
+      return 0;
+    })();
+
+    setSelectedMachineIdx(preferredMachineIdx);
+    setSelectedServerIdx(serverMachines[preferredMachineIdx]?.serverIndexes[0] ?? 0);
+    setSelectedEpisodeChunkIdx(0);
+    setServerDropdownOpen(false);
+    didInitSourceSelection.current = true;
+  }, [movie, id, serverMachines]);
 
   useEffect(() => {
     if (id && user && movie) {
