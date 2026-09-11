@@ -4,6 +4,7 @@ const OPHIM_BASE_URL = 'https://ophim1.com';
 const KK_BASE_URL = 'https://phimapi.com';
 const OPHIM_IMAGE_BASE_URL = 'https://img.ophim.live';
 const NGUONC_BASE_URL = 'https://phim.nguonc.com/api';
+const NGUONC_PROXY_BASE_URL = 'https://cdn-nguonc.hailab.cloud/';
 const HOME_CACHE_TTL = 5 * 60 * 1000;
 const DEFAULT_SORT_FIELD = 'modified.time';
 const DEFAULT_SORT_TYPE = 'desc';
@@ -365,11 +366,20 @@ function getCurrentEpisodeFromServers(servers: Array<{ name: string; episodes: A
   return Math.max(maxFromServers, 1);
 }
 
+function toNguoncProxyUrl(embedUrl: unknown): string {
+  const sourceUrl = String(embedUrl || '').trim();
+  if (!sourceUrl || sourceUrl.startsWith(NGUONC_PROXY_BASE_URL)) {
+    return sourceUrl;
+  }
+
+  return `${NGUONC_PROXY_BASE_URL}?eurl=${encodeURIComponent(sourceUrl)}&play=1`;
+}
+
 function mapNguoncEpisodesList(rawEpisodes: unknown): Array<{ name: string; link_embed: string; link_m3u8: string }> {
   return Array.isArray(rawEpisodes)
     ? rawEpisodes.map((ep: NguoncEpisodeItem) => ({
         name: String(ep.name || ep.slug || 'Tập 1'),
-        link_embed: String(ep.embed || ''),
+        link_embed: toNguoncProxyUrl(ep.embed),
         link_m3u8: String(ep.m3u8 || ''),
       }))
     : [];

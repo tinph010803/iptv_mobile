@@ -84,6 +84,10 @@ backBtn.addEventListener('click', function() {
 }
 
 function isEmbedUrl(url: string): boolean {
+  if (url.includes('cdn-nguonc.hailab.cloud')) {
+    return false;
+  }
+
   // Các domain embed phổ biến
   return url.includes('playembed') || url.includes('embed') ||
     url.startsWith('https://player') ||
