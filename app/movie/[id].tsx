@@ -517,7 +517,7 @@ export default function MovieDetailScreen() {
   };
 
   const openPlayer = (url: string, episodeName?: string, srvLabel?: string, startTime?: number, embedUrl?: string) => {
-    console.log('openPlayer called:', { url, embedUrl, srvLabel }); // ← thêm dòng này
+    // console.log('openPlayer called:', { url, embedUrl, srvLabel }); // ← thêm dòng này
 
     if (!url && !embedUrl) return;
 
@@ -528,7 +528,7 @@ export default function MovieDetailScreen() {
     let finalUrl = url;
     if (shouldPreferEmbed && embedUrl) {
       finalUrl = embedUrl;
-      console.log('finalUrl:', finalUrl);
+      // console.log('finalUrl:', finalUrl);
     } else if (shouldPreferEmbed) {
       // fallback: tìm embed từ movieServers nếu không truyền trực tiếp
       for (const srv of movieServers) {

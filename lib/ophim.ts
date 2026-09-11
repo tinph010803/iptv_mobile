@@ -500,6 +500,15 @@ async function resolveNguoncMovieForOphim(
   return fetchNguoncMovieBySlug(exact.slug);
 }
 
+async function resolveNguoncMovieByExactSlug(slug: unknown): Promise<NguoncDetailResponse | null> {
+  const normalizedSlug = normalizeCompareText(slug);
+  if (!normalizedSlug) return null;
+
+  const movie = await fetchNguoncMovieBySlug(String(slug));
+  const nguoncSlug = normalizeCompareText(movie?.movie?.slug);
+  return movie?.movie && nguoncSlug === normalizedSlug ? movie : null;
+}
+
 async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promise<Movie | null> {
     const normalizedSlug = normalizeDetailCacheKey(slug);
     if (!normalizedSlug) return null;
@@ -523,7 +532,6 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
       ]);
 
       if (item || kkItem) {
-        const sourceItem = kkItem || item;
         const baseMovie = item && kkItem
           ? mergeMovieDetails(mapKKMovie(kkItem), mapOPhimMovie(item))
           : kkItem
@@ -533,9 +541,10 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
 
         if (!detailEnrichPendingCache.has(normalizedSlug)) {
           const enrichPromise = (async () => {
-            const baseOrigin = String(sourceItem?.origin_name || sourceItem?.name || normalizedSlug);
+            if (!kkItem?.slug) return;
+
             const nc = await withTimeout(
-              resolveNguoncMovieForOphim(normalizedSlug, baseOrigin),
+              resolveNguoncMovieByExactSlug(kkItem.slug),
               EXTERNAL_SOURCE_TIMEOUT_MS,
               null as NguoncDetailResponse | null,
             );
@@ -545,7 +554,7 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
             const latest = getCachedMovieBySlug(normalizedSlug) ?? baseMovie;
             let enriched = latest;
 
-            if (nc?.movie && shouldMergeBySlugOrOrigin(sourceItem?.slug, sourceItem?.origin_name || sourceItem?.name, nc.movie.slug, nc.movie.original_name || nc.movie.name)) {
+            if (nc?.movie && shouldMergeBySlugOrOrigin(kkItem.slug, undefined, nc.movie.slug, undefined)) {
               const ncServers = buildNguoncServers(nc.movie.episodes);
               if (ncServers.length > 0) {
                 const mergedServers = [...(enriched.servers || []), ...ncServers];
@@ -571,6 +580,7 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
           });
 
           detailEnrichPendingCache.set(normalizedSlug, enrichPromise);
+          await enrichPromise;
         }
 
         return getCachedMovieBySlug(normalizedSlug) ?? baseMovie;
@@ -608,30 +618,34 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
         );
       }
 
+      if (kkItemFromOrigin?.slug) {
+        nc = await withTimeout(
+          resolveNguoncMovieByExactSlug(kkItemFromOrigin.slug),
+          EXTERNAL_SOURCE_TIMEOUT_MS,
+          null as NguoncDetailResponse | null,
+        );
+      }
+
       if (!itemFromOrigin && !kkItemFromOrigin && !nc?.movie) {
         return null;
       }
 
       let movie: Movie;
       let baseSlug: unknown;
-      let baseOrigin: unknown;
 
       if (kkItemFromOrigin) {
         movie = mapKKMovie(kkItemFromOrigin);
         baseSlug = kkItemFromOrigin.slug;
-        baseOrigin = kkItemFromOrigin.origin_name || kkItemFromOrigin.name;
       } else if (itemFromOrigin) {
         movie = mapOPhimMovie(itemFromOrigin);
         baseSlug = itemFromOrigin.slug;
-        baseOrigin = itemFromOrigin.origin_name || itemFromOrigin.name;
       } else {
         movie = mapNguoncMovie(nc!.movie!, normalizedSlug);
         baseSlug = nc!.movie!.slug || normalizedSlug;
-        baseOrigin = nc!.movie!.original_name || nc!.movie!.name || '';
       }
 
       if (nc?.movie) {
-        if (shouldMergeBySlugOrOrigin(baseSlug, baseOrigin, nc.movie.slug, nc.movie.original_name || nc.movie.name)) {
+        if (kkItemFromOrigin && shouldMergeBySlugOrOrigin(baseSlug, undefined, nc.movie.slug, undefined)) {
           const ncServers = buildNguoncServers(nc.movie.episodes);
           if (ncServers.length > 0) {
             const mergedServers = [...(movie.servers || []), ...ncServers];
