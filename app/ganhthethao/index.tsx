@@ -34,18 +34,17 @@ import {
   ChevronLeft,
   Filter,
   History,
-  Menu,
   MoreHorizontal,
   Play,
   Search,
   SquarePlay,
-  Trophy,
   Tv,
   X,
 } from 'lucide-react-native';
 
 import { CalendarPickerModal } from './CalendarPickerModal';
 import { MenuPopover, type MenuPopoverItem } from './MenuPopover';
+import vleagueSchedule from './livh_vleague.json';
 
 /* =========================================================
    CONSTANTS
@@ -53,6 +52,14 @@ import { MenuPopover, type MenuPopoverItem } from './MenuPopover';
 
 const EPL_LOGO =
   'https://assets.football-logos.cc/logos/england/512x512/english-premier-league.b597f797.png';
+const UCL_LOGO =
+  'https://assets.football-logos.cc/logos/tournaments/512x512/uefa-champions-league.effc906c.png';
+const VLEAGUE_LOGO =
+  'https://cdn.fstats.ai/fbs/fstat/1788421501469_compressed.png';
+const LALIGA_LOGO =
+  'https://assets.football-logos.cc/logos/spain/512x512/la-liga.0ea0b0c5.png';
+const BUNDESLIGA_LOGO =
+  'https://assets.football-logos.cc/logos/germany/512x512/bundesliga.24d9c6f9.png';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -82,6 +89,9 @@ const MATCHES = [
 const FOOTBALL_DATA_API_KEY = process.env.EXPO_PUBLIC_FOOTBALL_DATA_API_KEY;
 const FOOTBALL_DATA_API_URL = 'https://api.football-data.org/v4';
 const EPL_COMPETITION = 'PL';
+const UCL_COMPETITION = 'CL';
+const LALIGA_COMPETITION = 'PD';
+const BUNDESLIGA_COMPETITION = 'BL1';
 
 /* =========================================================
    TYPES
@@ -163,6 +173,26 @@ type FootballDataResponse = {
   matches?: FootballDataMatch[];
 };
 
+type VLeagueMatch = {
+  matchId: number;
+  leagueNameShort: string;
+  roundName: string;
+  matchStartDate: string;
+  matchStatus: number;
+  team1Id: number;
+  team1Name: string;
+  team1Logo: string;
+  team1TotalGoal: number | null;
+  team2Id: number;
+  team2Name: string;
+  team2Logo: string;
+  team2TotalGoal: number | null;
+};
+
+type VLeagueSchedule = {
+  schedule: Array<{ matchInfoDTOList: VLeagueMatch[] }>;
+};
+
 type FootballMatch = {
   match_id: string;
   match_date: string;
@@ -201,6 +231,21 @@ type FootballMatch = {
 type MatchSectionHandle = {
   scrollToToday: () => void;
 };
+
+type FootballCompetition = 'epl' | 'ucl' | 'laliga' | 'bundesliga' | 'vleague';
+
+function getCompetitionCode(competition: Exclude<FootballCompetition, 'vleague'>) {
+  switch (competition) {
+    case 'ucl':
+      return UCL_COMPETITION;
+    case 'laliga':
+      return LALIGA_COMPETITION;
+    case 'bundesliga':
+      return BUNDESLIGA_COMPETITION;
+    default:
+      return EPL_COMPETITION;
+  }
+}
 
 /* =========================================================
    TAB PILL
@@ -452,6 +497,46 @@ function normalizeMatch(match: FootballDataMatch): FootballMatch {
   };
 }
 
+function normalizeVLeagueMatch(event: VLeagueMatch): FootballMatch {
+  const normalizedStatus = event.matchStatus === 2
+    ? 'FINISHED'
+    : event.matchStatus === 5
+      ? 'POSTPONED'
+      : 'SCHEDULED';
+
+  return {
+    match_id: String(event.matchId),
+    match_date: event.matchStartDate,
+    status: normalizedStatus,
+    league: {
+      league_id: '46',
+      name: event.leagueNameShort,
+      country: 'Vietnam',
+      competition_name: event.roundName,
+    },
+    season: { season_id: '2026-2027', year: 2026 },
+    home_team: {
+      team_id: String(event.team1Id),
+      team_name: event.team1Name,
+      team_logo: event.team1Logo,
+    },
+    away_team: {
+      team_id: String(event.team2Id),
+      team_name: event.team2Name,
+      team_logo: event.team2Logo,
+    },
+    score: {
+      home: event.team1TotalGoal,
+      away: event.team2TotalGoal,
+    },
+  };
+}
+
+function getVLeagueMatches() {
+  const data = vleagueSchedule as VLeagueSchedule;
+  return data.schedule.flatMap((round) => round.matchInfoDTOList);
+}
+
 /* =========================================================
    MATCH SECTION
 ========================================================= */
@@ -460,9 +545,10 @@ const MatchSection = forwardRef<
   MatchSectionHandle,
   {
     scrollViewRef: React.RefObject<ScrollView | null>;
+    competition: FootballCompetition;
     onSelectedDateChange?: (selected: string, today: string) => void;
   }
->(function MatchSection({ scrollViewRef, onSelectedDateChange }, ref) {
+>(function MatchSection({ scrollViewRef, competition, onSelectedDateChange }, ref) {
   const today = useMemo(() => startOfDay(new Date()), []);
   const todayStr = formatDate(today);
 
@@ -512,10 +598,10 @@ const MatchSection = forwardRef<
 
   useEffect(() => {
     fetchWindow(windowStart);
-  }, [windowStart]);
+  }, [windowStart, competition]);
 
   async function fetchWindow(start: Date) {
-    if (!FOOTBALL_DATA_API_KEY) {
+    if (competition !== 'vleague' && !FOOTBALL_DATA_API_KEY) {
       setError('Chưa tìm thấy EXPO_PUBLIC_FOOTBALL_DATA_API_KEY');
       return;
     }
@@ -524,31 +610,41 @@ const MatchSection = forwardRef<
       setLoading(true);
       setError(null);
 
-      const dateFrom = formatDate(start);
-      const dateTo = formatDate(addDays(start, WINDOW_DAYS - 1));
+      const weekStart = getMonday(start);
+      const dateFrom = formatDate(weekStart);
+      const dateTo = formatDate(addDays(weekStart, WINDOW_DAYS - 1));
 
-      const url =
-        `${FOOTBALL_DATA_API_URL}` +
-        `/competitions/${EPL_COMPETITION}/matches` +
-        `?dateFrom=${dateFrom}` +
-        `&dateTo=${dateTo}`;
+      let matches: FootballMatch[];
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'X-Auth-Token': FOOTBALL_DATA_API_KEY as string,
-          Accept: 'application/json',
-        },
-      });
-
-      const data: FootballDataResponse = await response.json();
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${JSON.stringify(data)}`);
+      if (competition === 'vleague') {
+        const events = getVLeagueMatches();
+        matches = events
+          .filter((event) => {
+            const eventDate = formatDate(new Date(event.matchStartDate));
+            return eventDate >= dateFrom && eventDate <= dateTo;
+          })
+          .map(normalizeVLeagueMatch);
+      } else {
+        const competitionCode = getCompetitionCode(competition);
+        const url =
+          `${FOOTBALL_DATA_API_URL}` +
+          `/competitions/${competitionCode}/matches` +
+          `?dateFrom=${dateFrom}` +
+          `&dateTo=${dateTo}`;
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'X-Auth-Token': FOOTBALL_DATA_API_KEY as string,
+            Accept: 'application/json',
+          },
+        });
+        const data: FootballDataResponse = await response.json();
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${JSON.stringify(data)}`);
+        }
+        const events = Array.isArray(data.matches) ? data.matches : [];
+        matches = events.map(normalizeMatch);
       }
-
-      const events = Array.isArray(data.matches) ? data.matches : [];
-      const matches = events.map(normalizeMatch);
 
       const grouped: Record<string, FootballMatch[]> = {};
 
@@ -585,28 +681,36 @@ const MatchSection = forwardRef<
   ===================================================== */
 
   useEffect(() => {
-    if (!FOOTBALL_DATA_API_KEY) return;
+    if (competition !== 'vleague' && !FOOTBALL_DATA_API_KEY) return;
 
     let cancelled = false;
 
     async function checkLive() {
       try {
-        const url =
-          `${FOOTBALL_DATA_API_URL}` +
-          `/competitions/${EPL_COMPETITION}/matches` +
-          `?dateFrom=${todayStr}` +
-          `&dateTo=${todayStr}`;
-
-        const response = await fetch(url, {
-          headers: {
-            'X-Auth-Token': FOOTBALL_DATA_API_KEY as string,
-            Accept: 'application/json',
-          },
-        });
-
-        const data: FootballDataResponse = await response.json();
-        const events = Array.isArray(data.matches) ? data.matches : [];
-        const anyLive = events.some((m) => isLiveMatch(normalizeMatch(m)));
+        let matches: FootballMatch[] = [];
+        if (competition === 'vleague') {
+          const events = getVLeagueMatches();
+          matches = events
+            .filter((event) => formatDate(new Date(event.matchStartDate)) === todayStr)
+            .map(normalizeVLeagueMatch);
+        } else {
+          const competitionCode = getCompetitionCode(competition);
+          const url =
+            `${FOOTBALL_DATA_API_URL}` +
+            `/competitions/${competitionCode}/matches` +
+            `?dateFrom=${todayStr}` +
+            `&dateTo=${todayStr}`;
+          const response = await fetch(url, {
+            headers: {
+              'X-Auth-Token': FOOTBALL_DATA_API_KEY as string,
+              Accept: 'application/json',
+            },
+          });
+          const data: FootballDataResponse = await response.json();
+          const events = Array.isArray(data.matches) ? data.matches : [];
+          matches = events.map(normalizeMatch);
+        }
+        const anyLive = matches.some(isLiveMatch);
 
         if (!cancelled) setLiveNow(anyLive);
       } catch {
@@ -621,7 +725,7 @@ const MatchSection = forwardRef<
       cancelled = true;
       clearInterval(interval);
     };
-  }, [todayStr]);
+  }, [todayStr, competition]);
 
   /* =====================================================
      CUỘN TỚI NGÀY
@@ -906,7 +1010,7 @@ export function SportsHeader() {
   const scrollViewRef = useRef<ScrollView>(null);
   const matchSectionRef = useRef<MatchSectionHandle>(null);
 
-  const [tab, setTab] = useState<'tong-hop' | 'epl' | 'vleague'>('epl');
+  const [tab, setTab] = useState<FootballCompetition>('epl');
   const [showBackToToday, setShowBackToToday] = useState(false);
 
   // Popover 2: mở từ nút "..." — Bảng xếp hạng / Truyền hình
@@ -1007,12 +1111,22 @@ export function SportsHeader() {
         </View>
 
         {/* TABS */}
-        <View style={styles.tabsRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsRow}
+        >
           <TabPill
-            label="Tổng hợp"
-            icon={<Text style={styles.tabPillEmoji}>🏸</Text>}
-            active={tab === 'tong-hop'}
-            onPress={() => setTab('tong-hop')}
+            label="C1"
+            icon={
+              <Image
+                source={{ uri: UCL_LOGO }}
+                style={styles.tabPillLogo}
+                contentFit="contain"
+              />
+            }
+            active={tab === 'ucl'}
+            onPress={() => setTab('ucl')}
           />
 
           <TabPill
@@ -1031,19 +1145,43 @@ export function SportsHeader() {
 
           <TabPill
             label="V.League"
-            icon={<Trophy size={13} color="#FF4D4D" fill="#FF4D4D" />}
+            icon={
+              <Image
+                source={{ uri: VLEAGUE_LOGO }}
+                style={styles.tabPillLogo}
+                contentFit="contain"
+              />
+            }
             active={tab === 'vleague'}
             onPress={() => setTab('vleague')}
           />
 
-          <Pressable
+          <TabPill
+            label="LaLiga"
+            icon={
+              <Image
+                source={{ uri: LALIGA_LOGO }}
+                style={styles.tabPillLogo}
+                contentFit="contain"
+              />
+            }
+            active={tab === 'laliga'}
+            onPress={() => setTab('laliga')}
+          />
 
-            style={styles.menuBtn}
-
-          >
-            <Menu size={18} color="#fff" />
-          </Pressable>
-        </View>
+          <TabPill
+            label="Bundesliga"
+            icon={
+              <Image
+                source={{ uri: BUNDESLIGA_LOGO }}
+                style={styles.tabPillLogo}
+                contentFit="contain"
+              />
+            }
+            active={tab === 'bundesliga'}
+            onPress={() => setTab('bundesliga')}
+          />
+        </ScrollView>
       </SafeAreaView>
 
       <ScrollView ref={scrollViewRef} showsVerticalScrollIndicator={false}>
@@ -1056,6 +1194,7 @@ export function SportsHeader() {
         <MatchSection
           ref={matchSectionRef}
           scrollViewRef={scrollViewRef}
+          competition={tab}
           onSelectedDateChange={(selected, today) =>
             setShowBackToToday(selected !== today)
           }

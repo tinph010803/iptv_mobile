@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Image, Modal, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Image, Modal, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { ChevronLeft, Heart, LockKeyhole, Plus, Search, Tv, X } from 'lucide-react-native';
+import { ChevronLeft, Heart, LockKeyhole, Plus, Search, Trash2, Tv, X } from 'lucide-react-native';
 import { Channel, PlaylistSource } from '@/types/iptv';
 import { parseM3U } from '@/utils/m3uParser';
-import { getIptvFavorites, getIptvSources, saveIptvSource, toggleIptvFavorite } from '@/utils/iptvStorage';
+import { getIptvFavorites, getIptvSources, removeIptvSource, saveIptvSource, toggleIptvFavorite } from '@/utils/iptvStorage';
+
+async function fetchPlaylist(source: PlaylistSource): Promise<Channel[]> {
+  const response = await fetch(source.url);
+  if (!response.ok) throw new Error(`${source.name}: HTTP ${response.status}`);
+  return parseM3U(await response.text());
+}
 
 export function TvScheduleScreen() {
   const router = useRouter();
@@ -53,28 +59,43 @@ export function TvScheduleScreen() {
       setLoading(false);
       return;
     }
-    const source = saved.find((item) => item.id === activeSourceId);
     try {
-      const res = await fetch(source!.url);
-      if (!res.ok) throw new Error(`${source!.name}: HTTP ${res.status}`);
-      setChannels(parseM3U(await res.text()));
+      const source = saved.find((item) => item.id === activeSourceId);
+      const loadedChannels = await fetchPlaylist(source!);
+      setChannels(loadedChannels.map((channel, index) => ({
+        ...channel,
+        id: `ch-${index}`,
+      })));
     } catch (error) {
-      setChannels([]);
       setLoadError(error instanceof Error ? error.message : 'Không thể tải playlist');
     }
     setGroup('Tất cả');
     setLoading(false);
   }, [selectedSourceId]);
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
   const groups = useMemo(() => ['Tất cả', ...Array.from(new Set(channels.map((channel) => channel.group))).sort()], [channels]);
   const filtered = useMemo(() => channels.filter((channel) => (group === 'Tất cả' || channel.group === group) && channel.name.toLowerCase().includes(query.toLowerCase())), [channels, group, query]);
   const addSource = async () => { if (!name.trim() || !url.trim()) return; const saved = await saveIptvSource(name.trim(), url.trim()); setName(''); setUrl(''); setModal(false); setSources(saved); setSelectedSourceId(saved[saved.length - 1]?.id ?? null); };
+  const deleteSource = (source: PlaylistSource) => {
+    Alert.alert('Xóa nguồn phát?', `Bạn có chắc muốn xóa ${source.name}?`, [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xóa',
+        style: 'destructive',
+        onPress: async () => {
+          const saved = await removeIptvSource(source.id);
+          setSources(saved);
+          setSelectedSourceId((currentId) => currentId === source.id ? saved[0]?.id ?? null : currentId);
+        },
+      },
+    ]);
+  };
 
   return <SafeAreaView style={styles.wrapper} edges={['top']}>
     <StatusBar style="light" hidden={false} />
     <View style={styles.header}><Pressable onPress={() => router.back()}><ChevronLeft size={24} color="#fff" /></Pressable><View style={styles.heading}><Tv size={20} color="#7dd3fc" /><Text style={styles.headerTitle}>Truyền hình</Text></View><Pressable onPress={() => setModal(true)}><Plus size={23} color="#fff" /></Pressable></View>
     <View style={styles.search}><Search size={18} color="#888894" /><TextInput value={query} onChangeText={setQuery} placeholder="Tìm kênh truyền hình" placeholderTextColor="#777784" style={styles.input} /></View>
-    {sources.length > 0 && <FlatList style={styles.chipList} horizontal data={sources} keyExtractor={(item) => item.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sources} renderItem={({ item }) => <Pressable onPress={() => setSelectedSourceId(item.id)} style={[styles.source, item.id === selectedSourceId && styles.activeSource]}><Tv size={14} color={item.id === selectedSourceId ? '#fff' : '#7dd3fc'} /><Text style={[styles.sourceText, item.id === selectedSourceId && styles.activeSourceText]} numberOfLines={1}>{item.name}</Text></Pressable>} />}
+    {sources.length > 0 && <FlatList style={styles.chipList} horizontal data={sources} keyExtractor={(item) => item.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sources} renderItem={({ item }) => <View style={[styles.source, item.id === selectedSourceId && styles.activeSource]}><Pressable onPress={() => setSelectedSourceId(item.id)} style={{ maxWidth: 180, flexDirection: 'row', alignItems: 'center', gap: 6 }}><Tv size={14} color={item.id === selectedSourceId ? '#fff' : '#7dd3fc'} /><Text style={[styles.sourceText, item.id === selectedSourceId && styles.activeSourceText]} numberOfLines={1}>{item.name}</Text></Pressable><Pressable hitSlop={8} onPress={() => deleteSource(item)}><Trash2 size={14} color={item.id === selectedSourceId ? '#fff' : '#fda4af'} /></Pressable></View>} />}
     <FlatList style={styles.chipList} horizontal data={groups} keyExtractor={(item) => item} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.groups} renderItem={({ item }) => <Pressable onPress={() => setGroup(item)} style={[styles.group, item === group && styles.activeGroup]}><Text style={[styles.groupText, item === group && styles.activeGroupText]}>{item}</Text></Pressable>} />
     {loadError && <View style={styles.errorBanner}><Text style={styles.errorText}>{loadError}</Text></View>}
     <FlatList data={filtered} numColumns={2} keyExtractor={(item) => item.id} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor="#7dd3fc" />} contentContainerStyle={styles.grid} columnWrapperStyle={styles.row} ListEmptyComponent={<View style={styles.empty}><Tv size={42} color="#555563" /><Text style={styles.emptyText}>{loading ? 'Đang tải kênh...' : loadError ? 'Playlist không tải được' : 'Chưa có nguồn phát'}</Text>{!loading && !loadError && <><Text style={styles.emptyHint}>Dán link playlist M3U để bắt đầu xem</Text><Pressable style={styles.emptyButton} onPress={() => setModal(true)}><Plus size={17} color="#fff" /><Text style={styles.emptyButtonText}>Thêm nguồn phát</Text></Pressable></>}</View>} renderItem={({ item }) => <Pressable style={styles.card} onPress={() => router.push({ pathname: '/ganhthethao/iptv-player', params: { channel: JSON.stringify(item) } })}><View style={styles.logoWrap}>{item.logo ? <Image source={{ uri: item.logo }} style={styles.logo} resizeMode="contain" /> : <Tv size={34} color="#6e6e7b" />}{item.drm && <View style={styles.drmBadge}><LockKeyhole size={12} color="#bbf7d0" /><Text style={styles.drmText}>DRM</Text></View>}</View><View style={styles.caption}><Text style={styles.channelName} numberOfLines={1}>{item.name}</Text><Pressable hitSlop={8} onPress={async () => setFavorites(await toggleIptvFavorite(item))}><Heart size={17} color={favorites.includes(item.url) ? '#fb7185' : '#8b8b98'} fill={favorites.includes(item.url) ? '#fb7185' : 'transparent'} /></Pressable></View></Pressable>} />
