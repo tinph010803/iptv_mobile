@@ -4,10 +4,10 @@ import {
   Text,
   StyleSheet,
   Dimensions,
+  PixelRatio,
   TouchableOpacity,
   Animated,
   ScrollView,
-  InteractionManager,
   AppState,
   AppStateStatus,
 } from 'react-native';
@@ -17,10 +17,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { getMovieBySlug, prefetchMovieBySlug, seedMovieDetailCache } from '@/lib/ophim';
 import { FeaturedOverride, FEATURED_OVERRIDES } from '@/lib/featuredOverrides';
-import { Volume1, VolumeX } from 'lucide-react-native';
+import { Play, Volume1, VolumeX } from 'lucide-react-native';
+import { runWhenIdle } from '@/utils/runWhenIdle';
 
-const { width: W, height: SCREEN_H } = Dimensions.get('window');
-const BANNER_H = Math.round(Math.min(W * 0.60, SCREEN_H * 0.42));
+const { width: RAW_W, height: SCREEN_H } = Dimensions.get('window');
+const W = PixelRatio.roundToNearestPixel(RAW_W);
+const BANNER_H = Math.round(Math.min(W * 1.20, SCREEN_H * 0.5));
 
 interface SlideItem {
   slug: string;
@@ -84,16 +86,24 @@ const TrailerVideo = memo(function TrailerVideo({
     player.muted = muted;
   }, [muted, player]);
 
+  // Khi slide không active: KHÔNG render VideoView (unmount hẳn native surface)
+  // thay vì chỉ pause. Đây là fix cho lỗi "nửa màn hình" khi quay lại slide cũ —
+  // lỗi surface của Android/SurfaceView không redraw đầy đủ sau khi bị
+  // cuộn ra ngoài viewport rồi cuộn lại. Player vẫn giữ nguyên nên khi
+  // active lại, video hiện ngay không cần buffer lại từ đầu.
+  if (!active) {
+    return <View style={styles.trailerVideo} />;
+  }
+
   return (
     <VideoView
       player={player}
-      style={StyleSheet.absoluteFill}
+      style={styles.trailerVideo}
       contentFit="cover"
       nativeControls={false}
     />
   );
 });
-
 const BannerSlide = memo(function BannerSlide({
   item,
   active,
@@ -153,15 +163,7 @@ const BannerSlide = memo(function BannerSlide({
     <TouchableOpacity activeOpacity={0.95} style={styles.slide} onPress={handlePress} onPressIn={handlePressIn}>
 
       {hasTrailer ? (
-        <View style={StyleSheet.absoluteFill}>
-          {bgUri && (
-            <Animated.Image
-              source={{ uri: bgUri }}
-              style={{ width: W, height: BANNER_H }}
-              resizeMode="cover"
-              fadeDuration={0}
-            />
-          )}
+        <View style={styles.trailerLayer}>
           <TrailerVideo videoUrl={directVideoUrl} active={active} muted={muted} />
         </View>
       ) : (
@@ -178,7 +180,7 @@ const BannerSlide = memo(function BannerSlide({
       )}
 
       <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.65)']}
+        colors={['transparent', 'rgba(7,17,58,0.55)', 'rgba(7,17,58,1)']}
         locations={[0, 0.65, 1]}
         style={styles.gradBottom}
       />
@@ -189,6 +191,12 @@ const BannerSlide = memo(function BannerSlide({
         style={styles.gradLeft}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['transparent', 'rgba(7,17,58,0.72)', '#07113A']}
+        locations={[0, 0.62, 1]}
+        style={styles.contentFade}
       />
 
       {active && charUri && !hasTrailer && (
@@ -232,32 +240,39 @@ const BannerSlide = memo(function BannerSlide({
           </View>
           {movie && (
             <Text style={styles.badgeMeta}>
-              {[movie.year, movie.country, movie.current_episode ? `Tập ${movie.current_episode}` : null]
+              {[movie.year, movie.quality || '4K']
                 .filter(Boolean).join('  |  ')}
             </Text>
           )}
+          {hasTrailer && active && (
+            <TouchableOpacity style={styles.muteInlineBtn} onPress={onToggleMute} hitSlop={10}>
+              {muted
+                ? <VolumeX size={16} color="#fff" />
+                : <Volume1 size={16} color="#fff" />
+              }
+            </TouchableOpacity>
+          )}
         </View>
 
-        {movie?.genres && movie.genres.length > 0 && (
-          <View style={styles.genreRow}>
-            {movie.genres.slice(0, 3).map((g) => (
-              <View key={g} style={styles.genreTag}>
-                <Text style={styles.genreText}>{g}</Text>
-              </View>
-            ))}
+        <View style={styles.infoRow}>
+          <View style={styles.playBadge}>
+            <Play size={18} color="#07113A" fill="#07113A" />
           </View>
-        )}
+          {movie && (
+            <View style={styles.infoText}>
+              <Text style={styles.countryText}>{movie.country || 'Trung Quốc'}</Text>
+              <Text style={styles.episodeText}>
+                {movie.episodes > 0 && movie.current_episode >= movie.episodes
+                  ? `Trọn bộ ${movie.episodes} tập`
+                  : movie.current_episode > 0
+                    ? `Tập ${movie.current_episode}`
+                    : 'Đang cập nhật'}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
-      {/* Nút mute chỉ render ở slide active có trailer */}
-      {hasTrailer && active && (
-        <TouchableOpacity style={styles.muteBtn} onPress={onToggleMute} hitSlop={12}>
-          {muted
-            ? <VolumeX size={18} color="#fff" />
-            : <Volume1 size={18} color="#fff" />
-          }
-        </TouchableOpacity>
-      )}
     </TouchableOpacity>
   );
 }, (prev, next) =>
@@ -274,6 +289,14 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ showTrailers = 
   const [slideMovies, setSlideMovies] = useState<Record<string, Movie | null>>({});
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
+
+  // Đo width thực tế của container — đề phòng W tính từ Dimensions bị lệch
+  // so với width thật được layout (do padding/margin của màn cha, notch, v.v.)
+  const [measuredW, setMeasuredW] = useState(W);
+  const handleLayout = useCallback((e: any) => {
+    const w = Math.round(e.nativeEvent.layout.width);
+    if (w > 0 && w !== measuredW) setMeasuredW(w);
+  }, [measuredW]);
 
   // ── Mute state dùng chung, lift lên đây để control toàn carousel ────────
   const [muted, setMuted] = useState(true);
@@ -298,7 +321,7 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ showTrailers = 
   useEffect(() => {
     let cancelled = false;
 
-    InteractionManager.runAfterInteractions(() => {
+    runWhenIdle(() => {
       FEATURED_OVERRIDES.forEach(({ slug }) => {
         getMovieBySlug(slug)
           .then((movie) => {
@@ -320,10 +343,11 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ showTrailers = 
     [slides, slideMovies]
   );
 
+  // Tính activeIndex dựa trên measuredW để khớp đúng với snapToInterval
   const handleScroll = useCallback((e: any) => {
-    const idx = Math.round(e.nativeEvent.contentOffset.x / W);
-    setActiveIndex(idx);
-  }, []);
+    const idx = Math.round(e.nativeEvent.contentOffset.x / measuredW);
+    setActiveIndex((prev) => (idx !== prev ? idx : prev));
+  }, [measuredW]);
 
   useEffect(() => {
     const next = slidesWithMovies[(activeIndex + 1) % slidesWithMovies.length];
@@ -336,11 +360,15 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ showTrailers = 
   if (slidesWithMovies.length === 0) return null;
 
   return (
-    <View style={[styles.container, { height: BANNER_H }]}>
-      <ScrollView
+    <View
+      style={[styles.container, { height: BANNER_H }]}
+      onLayout={handleLayout}
+    >
+        <ScrollView
         ref={scrollRef}
         horizontal
         pagingEnabled
+        removeClippedSubviews={false}
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={handleScroll}
         scrollEventThrottle={16}
@@ -349,14 +377,15 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ showTrailers = 
         bounces={false}
       >
         {slidesWithMovies.map((item, index) => (
-          <BannerSlide
-            key={item.slug}
-            item={item}
-            active={index === activeIndex}
-            muted={muted}
-            onToggleMute={toggleMute}
-            showTrailers={showTrailers}
-          />
+          <View key={item.slug} style={{ width: measuredW }}>
+            <BannerSlide
+              item={item}
+              active={index === activeIndex}
+              muted={muted}
+              onToggleMute={toggleMute}
+              showTrailers={showTrailers}
+            />
+          </View>
         ))}
       </ScrollView>
 
@@ -370,12 +399,15 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ showTrailers = 
 });
 
 const styles = StyleSheet.create({
-  container: { marginBottom: 0, overflow: 'hidden' },
-  slide: { width: W, height: BANNER_H, overflow: 'hidden', backgroundColor: '#1a1a2e' },
+  container: { width: '100%', alignSelf: 'stretch', marginBottom: 0, overflow: 'hidden', backgroundColor: '#07113A' },
+  slide: { width: '100%', height: BANNER_H, overflow: 'hidden', backgroundColor: '#07113A' },
+  trailerLayer: { position: 'absolute', left: 0, top: 0, width: '100%', height: BANNER_H, backgroundColor: '#07113A' },
+  trailerVideo: { width: '100%', height: BANNER_H },
   bg: { ...StyleSheet.absoluteFill },
   gradBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: BANNER_H * 0.55 },
   gradTop: { position: 'absolute', top: 0, left: 0, right: 0, height: BANNER_H * 0.18 },
   gradLeft: { position: 'absolute', top: 0, left: 0, bottom: 0, width: W * 0.58 },
+  contentFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: BANNER_H * 0.34 },
   character: { position: 'absolute', right: 0, bottom: 0 },
   content: { position: 'absolute', left: 20, bottom: 14, right: W * 0.40 },
   titleImg: { width: '100%', height: 72, marginBottom: 10, alignSelf: 'flex-start' },
@@ -384,27 +416,34 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 8,
   },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  top10Badge: { backgroundColor: '#22C55E', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 6 },
+  top10Badge: { backgroundColor: '#EF4444', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 6 },
   top10Text: { color: '#fff', fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
   badgeMeta: { color: '#D1D5DB', fontSize: 12, fontWeight: '500' },
-  genreRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
-  genreTag: {
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)',
-    paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+  muteInlineBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 2,
   },
-  genreText: { color: '#fff', fontSize: 11, fontWeight: '500' },
+  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  playBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#22C55E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  infoText: {
+    justifyContent: 'center',
+  },
+  countryText: { color: '#fff', fontSize: 13, fontWeight: '600', marginBottom: 2 },
+  episodeText: { color: '#D1D5DB', fontSize: 11, fontWeight: '500' },
   dots: { position: 'absolute', bottom: 16, right: 16, flexDirection: 'row', alignItems: 'center', gap: 4 },
   dot: { width: 6, height: 5, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.35)' },
   dotActive: { width: 22, height: 5, backgroundColor: '#22C55E', borderRadius: 10 },
-  muteBtn: {
-    position: 'absolute',
-    bottom: 180,
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    padding: 8,
-    borderRadius: 999,
-  },
 });

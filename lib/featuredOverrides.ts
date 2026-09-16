@@ -28,51 +28,16 @@ const CACHE_KEY = 'featured_overrides_cache_v2';
 /** Dữ liệu mặc định — hardcode theo sort_order */
 export const FEATURED_OVERRIDES: FeaturedOverride[] = [
   {
-    slug: 'gia-thien-movie-vac-quan-tai-chien-vuong-dang',
-    titleImg: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775384927/Gemini_Generated_Image_nyrvnsnyrvnsnyrv_a2iq1v.png',
-    trailerUrl: 'https://res.cloudinary.com/df2amyjzw/video/upload/v1775383928/giathien_movie_accdzl.mp4'
+    slug: 'bon-ban-tay-hai-ban-sonata',
+    titleImg: 'https://sf-static.onflixcdn.com/images/pic/1788018511_url.webp',
+    trailerUrl: 'https://trailer.onflixcdn.com/trailer/29082026/8752c25b-7fbb-4637-88b5-c0590e3e9799.m3u8'
   },
   {
-    slug: 'nguyet-lan-y-ky',
-    titleImg: 'https://sf-static.onflixcdn.pics/images/pic/1775038312_url.png',
-    trailerUrl: 'https://res.cloudinary.com/df2amyjzw/video/upload/sp_auto/v1775190197/nguyetlanyky_mwuhcz.m3u8',
-  },
-  {
-    slug: 'mo-tu-tu',
-    titleImg: 'https://sf-static.onflixcdn.pics/images/pic/1774685404_url.webp',
-    trailerUrl: 'https://res.cloudinary.com/df2amyjzw/video/upload/sp_auto/v1775011804/motutu_wpe4k3.m3u8',
-  },
-  {
-    slug: 'xin-chao-1983',
-    bg: 'https://sf-static.onflixcdn.pics/images/pic/1773748924_url.webp',
-    character: 'https://sf-static.onflixcdn.pics/images/pic/1773748635_url.webp',
-    titleImg: 'https://sf-static.onflixcdn.pics/images/pic/1773748957_url.webp',
-    charH: 0.72,
-    charBottom: 0,
-  },
-  {
-    slug: 'truc-ngoc',
-    bg: 'https://pics.ibytecdn.org/images/pic/1772791752_url.webp',
-    character: 'https://pics.ibytecdn.org/images/pic/1772791880_url.webp',
-    titleImg: 'https://pics.ibytecdn.org/images/pic/1772791902_url.webp',
-    charH: 0.72,
-  },
-  {
-    slug: 'nghe-thuat-lua-doi-cua-sarah',
-    bg: 'https://sf-static.onflixcdn.pics/images/pic/1771002086_bg_%20Sarah_onflix.webp',
-    character: 'https://sf-static.onflixcdn.pics/images/pic/1770999672_Sarah_onflix.webp',
-    titleImg: 'https://sf-static.onflixcdn.pics/images/pic/1770999603_url.webp',
-  },
-  {
-    slug: 'tieng-yeu-nay-anh-dich-duoc-khong',
-    bg: 'https://pics.ibytecdn.org/images/pic/1770748620_bg_tynaddk_onflix.png',
-    character: 'https://pics.ibytecdn.org/images/pic/1770748579_tynaddk_onflix.webp',
-    titleImg: 'https://occ-0-325-395.1.nflxso.net/dnm/api/v6/S4oi7EPZbv2UEPaukW54OORa0S8/AAAABWQIQTF0EvZbwaTWW7DJY1f2niB_zXEUEiSJZ_57U25R8a_DEL9FAEneWszREn6KptkK0GUdX5s_X61kFwfqoUjVakSsJWpu9g.webp?r=c14',
-    charW: 0.68,
-    charH: 0.90,
-    charRight: -15,
-    charBottom: 0,
-  },
+    slug: 'de-che-dai-han-phan-2',
+    titleImg: 'https://sf-static.onflixcdn.com/images/pic/1788960708_MADE-IN-KOREA-2-9-9-2026.png',
+    trailerUrl: 'https://trailer.onflixcdn.com/trailer/09092026/3c030e62-486f-4333-9ece-d692d6ce1554.m3u8'
+  }
+  
 ];
 
 /**

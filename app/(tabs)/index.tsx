@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  InteractionManager,
   View,
   Text,
   StyleSheet,
@@ -13,7 +12,7 @@ import {
   Pressable,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '@/constants/colors';
 import { GENRES } from '@/constants/filters';
@@ -23,11 +22,12 @@ import { getTop10Films } from '@/lib/top10Films';
 import { Movie } from '@/types/movie';
 import { FeaturedCarousel } from '@/components/FeaturedCarousel';
 import { MovieSection } from '@/components/MovieSection';
-import { ChevronDown, X, Play, Menu, Film } from 'lucide-react-native';
+import { Search, SlidersHorizontal, X, Play } from 'lucide-react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { getWatchHistory, WatchHistoryEntry, formatTime } from '@/lib/watchHistory';
 import { useAuth } from '@/context/AuthContext';
 import { HTMoviesSection } from '@/components/HTMoviesSection';
+import { runWhenIdle } from '@/utils/runWhenIdle';
 
 const TOPICS_PREVIEW = 4;
 
@@ -216,17 +216,19 @@ const SECTION_CONFIGS: SectionConfig[] = [
 
 export default function HomeScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [selectedFilter, setSelectedFilter] = useState('Đề xuất');
   const [featuredMovies, setFeaturedMovies] = useState<Movie[]>([]);
   const [top10Movies, setTop10Movies] = useState<Movie[]>([]);
   const [sectionMovies, setSectionMovies] = useState<Record<string, Movie[]>>({});
+  const [searchMenuVisible, setSearchMenuVisible] = useState(false);
   const [genreModalVisible, setGenreModalVisible] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [genreSort, setGenreSort] = useState<'moi-nhat' | 'xem-nhieu'>('moi-nhat');
   const [watchHistory, setWatchHistory] = useState<WatchHistoryEntry[]>([]);
   const [homeReady, setHomeReady] = useState(false);
-  const [showTrailers, setShowTrailers] = useState(true);
+  const showTrailers = true;
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -261,31 +263,6 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // Load trailer preference from AsyncStorage
-  useEffect(() => {
-    (async () => {
-      try {
-        const stored = await AsyncStorage.getItem('showTrailers');
-        if (stored !== null) {
-          setShowTrailers(stored === 'true');
-        }
-      } catch (e) {
-        console.error('Error loading trailer preference:', e);
-      }
-    })();
-  }, []);
-
-  // Save trailer preference to AsyncStorage
-  const toggleTrailers = useCallback(async () => {
-    const newState = !showTrailers;
-    setShowTrailers(newState);
-    try {
-      await AsyncStorage.setItem('showTrailers', String(newState));
-    } catch (e) {
-      console.error('Error saving trailer preference:', e);
-    }
-  }, [showTrailers]);
-
   // Reload watch history every time screen is focused
   useFocusEffect(useCallback(() => {
     if (!user) { setWatchHistory([]); return; }
@@ -312,7 +289,7 @@ export default function HomeScreen() {
       if (!cancelled) setHomeReady(true);
     }, 1200);
 
-    const refreshTask = InteractionManager.runAfterInteractions(async () => {
+    const refreshTask = runWhenIdle(async () => {
       const tasks = [
         getHomeMovies(),
         getTop10Films(),
@@ -511,7 +488,7 @@ export default function HomeScreen() {
         </View>
       )}
     </Animated.View>
-  ), [fadeAnim, watchHistory, renderHistoryCard, showTrailers]);
+  ), [fadeAnim, watchHistory, renderHistoryCard]);
 
   const listFooter = useMemo(() => {
     return (
@@ -544,7 +521,7 @@ export default function HomeScreen() {
   }, [top10Movies, renderTop10Card, top10GetItemLayout]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={[]}>
       <LinearGradient
         colors={['rgba(255, 62, 30, 0.36)', 'rgba(255, 62, 30, 0.06)', 'transparent']}
         start={{ x: 0.5, y: 0 }}
@@ -552,51 +529,30 @@ export default function HomeScreen() {
         style={styles.heroGlow}
       />
 
-      <View style={styles.header}>
-        <View style={styles.logoContainer}>
-          {/* <Image source={{ uri: 'https://i.ibb.co/dJ7CJ8Pf/logo-ganh-removebg-preview.png' }} style={styles.logo} /> */}
-           <Image source={{ uri: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1786077846/upflix-removebg-preview_dsnd1z.png' }} style={styles.logo} />
-          <View>
-            <Text style={styles.logoTitle}>Gánh Phim</Text>
-            <Text style={styles.logoSubtitle}>Phim hay cả gánh</Text>
-          </View>
-        </View>
-        <View style={styles.headerIcons}>
+      <View style={[styles.homeTopBar, { top: insets.top + 8 }]}>
+          <Image
+            source={{ uri: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1786077846/upflix-removebg-preview_dsnd1z.png' }}
+            style={styles.brandLogo}
+            resizeMode="contain"
+          />
+        <View style={styles.searchControl}>
           <TouchableOpacity
-            style={styles.iconButton}
-            activeOpacity={0.7}
-            onPress={toggleTrailers}
+            style={styles.searchTrigger}
+            activeOpacity={0.82}
+            onPress={() => router.push('/search' as any)}
           >
-            <Film size={20} color={showTrailers ? Colors.primary : Colors.text} />
+            <Search size={18} color={Colors.textSecondary} />
+            <Text style={styles.searchTriggerText}>Tìm kiếm phim,...</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.iconButton}
-            activeOpacity={0.7}
-            onPress={() => router.replace('/intro' as any)}
+            style={styles.filterTrigger}
+            activeOpacity={0.82}
+            onPress={() => setSearchMenuVisible(true)}
           >
-            <Menu size={20} color={Colors.text} />
+            <SlidersHorizontal size={17} color={Colors.text} />
+            <Text style={styles.filterTriggerText}>Lọc</Text>
           </TouchableOpacity>
         </View>
-      </View>
-
-      <View style={styles.filterContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScrollContent}>
-          {FILTER_OPTIONS.map((option) => (
-            <TouchableOpacity
-              key={option}
-              style={[styles.filterButton, selectedFilter === option && styles.filterButtonActive]}
-              onPress={() => handleFilterPress(option)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.filterButtonText, selectedFilter === option && styles.filterButtonTextActive]}>
-                {option}
-              </Text>
-              {option === 'Thể loại' && (
-                <ChevronDown size={14} color={selectedFilter === option ? Colors.background : Colors.text} />
-              )}
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
       </View>
 
       <FlatList
@@ -613,6 +569,49 @@ export default function HomeScreen() {
         windowSize={5}
         style={styles.scrollView}
       />
+
+      <Modal
+        visible={searchMenuVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSearchMenuVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setSearchMenuVisible(false)} />
+        <View style={styles.searchMenu}>
+          <View style={styles.searchMenuHeader}>
+            <View>
+              <Text style={styles.searchMenuEyebrow}>BỘ LỌC</Text>
+              <Text style={styles.searchMenuTitle}>Lọc phim</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.searchMenuClose}
+              onPress={() => setSearchMenuVisible(false)}
+              activeOpacity={0.75}
+            >
+              <X size={20} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.searchMenuOptions}>
+            {FILTER_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option}
+                style={[styles.searchMenuOption, selectedFilter === option && styles.searchMenuOptionActive]}
+                onPress={() => {
+                  setSearchMenuVisible(false);
+                  handleFilterPress(option);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.searchMenuOptionText, selectedFilter === option && styles.searchMenuOptionTextActive]}>
+                  {option}
+                </Text>
+                <Text style={[styles.searchMenuArrow, selectedFilter === option && styles.searchMenuArrowActive]}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </Modal>
 
       {/* Genre picker modal */}
       <Modal
@@ -691,80 +690,59 @@ const styles = StyleSheet.create({
     right: -80,
     height: 360,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 6,
-    paddingBottom: 8,
-  },
-  logoContainer: {
+  homeTopBar: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-  },
-  logo: {
-    width: 54,
-    height: 54,
-    resizeMode: 'contain',
-  },
-  logoTitle: {
-    color: Colors.text,
-    fontSize: 19,
-    fontWeight: '800',
-  },
-  logoSubtitle: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    marginTop: -2,
-  },
-  headerIcons: {
-    flexDirection: 'row',
     gap: 10,
   },
-  iconButton: {
-    width: 34,
+  brandLogo: {
+    width: 72,
     height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.24)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(12, 23, 69, 0.6)',
   },
-  scrollView: {
+  searchControl: {
     flex: 1,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(13, 1, 1, 0.04)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
   },
-  filterContainer: {
-    paddingVertical: 8,
+  searchTrigger: {
+    flex: 1,
+    height: '100%',
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
-  filterScrollContent: {
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  filterButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: 999,
-    borderWidth: 1.4,
-    borderColor: 'rgba(255,255,255,0.7)',
-    backgroundColor: 'transparent',
+  filterTrigger: {
+    height: '100%',
+    paddingHorizontal: 12,
+    borderLeftWidth: 1,
+    borderLeftColor: 'rgba(255,255,255,0.16)',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
   },
-  filterButtonActive: {
-    backgroundColor: Colors.white,
-    borderColor: Colors.white,
-  },
-  filterButtonText: {
-    color: Colors.white,
+  filterTriggerText: {
+    color: Colors.text,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  filterButtonTextActive: {
-    color: Colors.background,
+  searchTriggerText: {
+    flex: 1,
+    color: Colors.textSecondary,
+    fontSize: 13,
+  },
+  scrollView: {
+    flex: 1,
   },
   sectionContainer: {
     marginBottom: 20,
@@ -1005,6 +983,74 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  searchMenu: {
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 28,
+  },
+  searchMenuHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  searchMenuEyebrow: {
+    color: Colors.primary,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginBottom: 4,
+  },
+  searchMenuTitle: {
+    color: Colors.text,
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  searchMenuClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchMenuOptions: {
+    gap: 10,
+  },
+  searchMenuOption: {
+    minHeight: 50,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  searchMenuOptionActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  searchMenuOptionText: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  searchMenuOptionTextActive: {
+    color: Colors.background,
+  },
+  searchMenuArrow: {
+    color: Colors.textSecondary,
+    fontSize: 24,
+    lineHeight: 24,
+  },
+  searchMenuArrowActive: {
+    color: Colors.background,
   },
   genreModal: {
     backgroundColor: Colors.background,

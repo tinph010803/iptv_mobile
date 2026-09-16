@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { InteractionManager, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { ArrowRight, Delete } from 'lucide-react-native';
 import { WebView } from 'react-native-webview';
+import { runWhenIdle } from '@/utils/runWhenIdle';
 
 type FeatureCardProps = {
     title: React.ReactNode;
@@ -315,7 +316,7 @@ export default function IntroScreen() {
         useMemo(
             () => () => {
                 let focused = true;
-                const task = InteractionManager.runAfterInteractions(() => {
+                const task = runWhenIdle(() => {
                     if (!focused) return;
 
                     setLayoutKey((value) => value + 1);
@@ -496,7 +497,6 @@ export default function IntroScreen() {
                                 />
                                 <FeatureCard
                                     title={<Image source={{ uri: LOGOS.ganhTheThao }} style={styles.cardTitleLogo} contentFit="contain" contentPosition="left" />}
-                                    subtitle={<Text style={styles.featureSubtitle}>KHÔNG NÊN CỜ BẠC</Text>}
                                     description="Không gian tổng hợp thông tin thể thao mang tính giải trí và cập nhật nhanh."
                                     action="Xem ngay"
                                     backgroundImage={BACKGROUNDS.ganhTheThao}
