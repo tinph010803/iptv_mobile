@@ -72,11 +72,10 @@ export const MovieCard = memo(function MovieCard({
   const subbedCount = subbedEps > 0 ? subbedEps : (subbedLastCount || movie.current_episode);
   const dubbedCount = dubbedEps > 0 ? dubbedEps : (dubbedLastCount || movie.current_episode);
   const thuyetMinhCount = thuyetMinhEps > 0 ? thuyetMinhEps : (thuyetMinhLastCount || movie.current_episode);
-  const audioPrefix = hasTM ? 'TM' : 'LT';
   const audioCount = hasTM ? thuyetMinhCount : dubbedCount;
 
-  const subbedText = isSeries ? `PĐ.${subbedCount}/${total}` : `PĐ.${subbedCount}`;
-  const dubbedText = isSeries ? `${audioPrefix}.${audioCount}/${total}` : `${audioPrefix}.${audioCount}`;
+  const subbedText = isSeries ? `PĐ.${subbedCount}` : 'PĐ.';
+  const dubbedText = isSeries ? `TM.${audioCount}` : 'TM.';
 
   return (
     <TouchableOpacity
@@ -187,14 +186,14 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     color: Colors.text,
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: '600',
   },
   statusBadge: {
     position: 'absolute',
     bottom: 8,
-    left: 56,
-    paddingHorizontal: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
     paddingVertical: 4,
     borderRadius: 999,
   },

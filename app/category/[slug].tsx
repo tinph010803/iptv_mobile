@@ -8,7 +8,12 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft, SlidersHorizontal, X, ChevronDown, ChevronUp } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { GENRES, COUNTRIES, MOVIE_TYPES, SORT_OPTIONS, YEARS } from '@/constants/filters';
-import { getMoviesFilteredPaged, searchMoviesWithFilters } from '@/lib/ophim';
+import {
+  getMoviesByCountryPaged,
+  getMoviesByTypePaged,
+  getMoviesFilteredPaged,
+  searchMoviesWithFilters,
+} from '@/lib/ophim';
 import { Movie } from '@/types/movie';
 import { MovieCard } from '@/components/MovieCard';
 
@@ -230,13 +235,17 @@ export default function CategoryScreen() {
         setMovies(movies);
         setTotalPages(1);
       } else {
-        const result = await getMoviesFilteredPaged({
-          movieType: f.movieType || undefined,
-          country: f.country || undefined,
-          genre: f.genre || undefined,
-          year: f.year,
-          sort: f.sort || undefined,
-        }, pageNum);
+        const result = f.movieType
+          ? await getMoviesByTypePaged(f.movieType, pageNum)
+          : f.country
+            ? await getMoviesByCountryPaged(f.country, pageNum)
+            : await getMoviesFilteredPaged({
+              movieType: f.movieType || undefined,
+              country: f.country || undefined,
+              genre: f.genre || undefined,
+              year: f.year,
+              sort: f.sort || undefined,
+            }, pageNum);
         setMovies(result.movies);
         setTotalPages(result.totalPages);
       }

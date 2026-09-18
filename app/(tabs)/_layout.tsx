@@ -72,7 +72,7 @@ import { Pressable, Text, View, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Search,
-  History,
+  Compass,
   House as Home,
   Heart,
   User,
@@ -93,7 +93,7 @@ type TabItem = {
 
 const SIDE_TABS_LEFT: TabItem[] = [
   { href: '/search', label: 'Tìm kiếm', Icon: Search },
-  { href: '/history', label: 'Lịch sử', Icon: History },
+  { href: '/topics', label: 'Khám phá', Icon: Compass },
 ];
 
 const SIDE_TABS_RIGHT: TabItem[] = [

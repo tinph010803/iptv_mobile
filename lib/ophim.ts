@@ -1098,14 +1098,15 @@ export async function getMoviesByCountryPaged(
   country: string,
   page: number = 1,
 ): Promise<{ movies: Movie[]; totalPages: number }> {
-  try {
-    const json = await fetchOPhim(`/v1/api/quoc-gia/${country}?page=${page}`);
-    const totalPages = parseTotalPages(json?.data as any);
-    const movies = await fetchMergedMoviesByPath(`/v1/api/quoc-gia/${country}?page=${page}`);
-    return { movies, totalPages };
-  } catch {
-    return { movies: [], totalPages: 1 };
-  }
+  const path = `/v1/api/quoc-gia/${country}?page=${page}`;
+  const [paginationResult, movies] = await Promise.all([
+    fetchKK(path).catch(() => null),
+    fetchMergedMoviesByPath(path),
+  ]);
+  return {
+    movies,
+    totalPages: parseTotalPages(paginationResult?.data as any),
+  };
 }
 
 export async function getMoviesByType(type: string, page: number = 1): Promise<Movie[]> {
@@ -1120,14 +1121,15 @@ export async function getMoviesByTypePaged(
   type: string,
   page: number = 1,
 ): Promise<{ movies: Movie[]; totalPages: number }> {
-  try {
-    const json = await fetchOPhim(`/v1/api/danh-sach/${type}?page=${page}`);
-    const totalPages = parseTotalPages(json?.data as any);
-    const movies = await fetchMergedMoviesByPath(`/v1/api/danh-sach/${type}?page=${page}`);
-    return { movies, totalPages };
-  } catch {
-    return { movies: [], totalPages: 1 };
-  }
+  const path = `/v1/api/danh-sach/${type}?page=${page}`;
+  const [paginationResult, movies] = await Promise.all([
+    fetchKK(path).catch(() => null),
+    fetchMergedMoviesByPath(path),
+  ]);
+  return {
+    movies,
+    totalPages: parseTotalPages(paginationResult?.data as any),
+  };
 }
 
 export async function getMoviesByGenrePaged(

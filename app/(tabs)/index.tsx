@@ -8,28 +8,22 @@ import {
   Image,
   TouchableOpacity,
   ScrollView,
-  Modal,
-  Pressable,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '@/constants/colors';
-import { GENRES } from '@/constants/filters';
-import { getHomeMovies, getMoviesByCountry, getMoviesByType } from '@/lib/ophim';
-import { prefetchMovieBySlug, seedMovieDetailCache } from '@/lib/ophim';
+import { getHomeMovies, getMoviesByCountry, getMoviesByType, prefetchMovieBySlug, seedMovieDetailCache } from '@/lib/ophim';
 import { getTop10Films } from '@/lib/top10Films';
 import { Movie } from '@/types/movie';
 import { FeaturedCarousel } from '@/components/FeaturedCarousel';
 import { MovieSection } from '@/components/MovieSection';
-import { Search, SlidersHorizontal, X, Play } from 'lucide-react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { getWatchHistory, WatchHistoryEntry, formatTime } from '@/lib/watchHistory';
 import { useAuth } from '@/context/AuthContext';
 import { HTMoviesSection } from '@/components/HTMoviesSection';
 import { runWhenIdle } from '@/utils/runWhenIdle';
-
-const TOPICS_PREVIEW = 4;
+import { Play } from 'lucide-react-native';
 
 const TOP10_CARD_WIDTH = 110;
 const TOP10_CARD_MARGIN = 10;
@@ -92,10 +86,9 @@ const Top10Card = memo(function Top10Card({ item, index }: { item: Movie; index:
   const subbedCount = (subbedServer?.episodes?.length ?? 0) > 0 ? subbedServer!.episodes.length : (subbedLastCount || item.current_episode);
   const dubbedCount = (dubbedServer?.episodes?.length ?? 0) > 0 ? dubbedServer!.episodes.length : (dubbedLastCount || item.current_episode);
   const thuyetMinhCount = (thuyetMinhServer?.episodes?.length ?? 0) > 0 ? thuyetMinhServer!.episodes.length : (thuyetMinhLastCount || item.current_episode);
-  const audioPrefix = hasTM ? 'TM' : 'LT';
   const audioCount = hasTM ? thuyetMinhCount : dubbedCount;
-  const subbedText = isSeries ? `PĐ.${subbedCount}/${total}` : `PĐ.${subbedCount}`;
-  const dubbedText = isSeries ? `${audioPrefix}.${audioCount}/${total}` : `${audioPrefix}.${audioCount}`;
+  const subbedText = isSeries ? `PĐ.${subbedCount}` : 'PĐ.';
+  const dubbedText = isSeries ? `TM.${audioCount}` : 'TM.';
 
   return (
     <TouchableOpacity
@@ -139,66 +132,6 @@ const Top10Card = memo(function Top10Card({ item, index }: { item: Movie; index:
   );
 });
 
-const FILTER_OPTIONS = ['Đề xuất', 'Phim bộ', 'Phim lẻ', 'Thể loại'];
-
-const TOPICS = [
-  { slug: 'hot-ran-ran', name: 'Hot Rần Rần', color: '#e23341', thumbnail: 'https://sf-static.onflixcdn.pics/images/pic/1770999672_Sarah_onflix.webp', filter: { sort_by: 'views', status: 'ongoing' } },
-  { slug: 'dang-chieu-phat', name: 'Đang Chiếu Phát', color: '#b5420a', thumbnail: 'https://img.upanhnhanh.com/545e7a4895048bd8fe1219cb09eb1e54', filter: { status: 'ongoing' } },
-  { slug: 'phim-truyen-hinh-trung-quoc-dai-luc', name: 'Trung Quốc', color: '#1a6b3a', thumbnail: 'https://img.upanhnhanh.com/88c5903ca2638698c9a176e5d1effa1f', filter: { country_code: 'trung-quoc', type: 'phim-bo' } },
-  { slug: 'hoat-hinh-chon-loc', name: 'Hoạt hình', color: '#1a3a6b', thumbnail: 'https://img.upanhnhanh.com/5f4e92805e8b87a3c539df9112ac7312', filter: { q: 'hoạt hình' } },
-  { slug: 'phim-hanh-dong', name: 'Hành Động', color: '#8b1a1a', thumbnail: 'https://img.upanhnhanh.com/92b005dcea75c446ec09c7f334d6fe07', filter: { genre_ids: 'hanh-dong', sort_by: 'release_date' } },
-  { slug: 'phim-co-trang', name: 'Cổ Trang', color: '#4a2a0a', thumbnail: 'https://img.upanhnhanh.com/a5e63f88be0d159bc0318c2fcb6623dc', filter: { genre_ids: 'co-trang', sort_by: 'release_date' } },
-  { slug: 'phim-han-quoc', name: 'Hàn Quốc', color: '#1a2a5c', thumbnail: 'https://img.upanhnhanh.com/94571cba98cfe7b5468d2d99e213bb97', filter: { country_code: 'han-quoc' } },
-  { slug: 'thanh-xuan', name: 'Thanh xuân', color: '#0a2a4a', thumbnail: 'https://img.upanhnhanh.com/cd87839b695dc11c3fccf59bc03cca6f', filter: { q: 'thanh xuân' } },
-  { slug: 'chua-lanh-tam-hon', name: 'Chữa Lành', color: '#5c1a1a', thumbnail: 'https://img.upanhnhanh.com/bebf83030f11150f0153b14c794bc4d7', filter: { q: 'chữa lành' } },
-  { slug: 'phim-tinh-cam', name: 'Tình Cảm', color: '#6b1a3a', thumbnail: 'https://img.upanhnhanh.com/91867964fa50f964b1445cbce6b95fb9', filter: { genre_ids: 'tinh-cam', sort_by: 'release_date' } },
-  { slug: 'phim-4k', name: 'Phim 4K', color: '#1a1a1a', thumbnail: 'https://img.upanhnhanh.com/d8440580bcd377b6668c98c5f5038d29', filter: { quality: '4K' } },
-  { slug: 'phim-cong-so', name: 'Công Sở', color: '#0a1a2a', thumbnail: 'https://img.upanhnhanh.com/255832b967f88f9009ddd08ecc90465b', filter: { q: 'công sở' } },
-  { slug: 'phim-hinh-su', name: 'Hình Sự', color: '#0a1a3a', thumbnail: 'https://img.upanhnhanh.com/8cbe701c177f4ba1f34c791f4daa21f6', filter: { genre_ids: 'hinh-su', sort_by: 'release_date' } },
-  { slug: 'phim-kinh-di', name: 'Kinh Dị', color: '#1a0a2a', thumbnail: 'https://img.upanhnhanh.com/1df553af88c75c5042a141828c78e6d3', filter: { genre_ids: 'kinh-di', sort_by: 'release_date' } },
-  { slug: 'dien-anh-au-my', name: 'Điện ảnh Âu Mỹ', color: '#5c1a1a', thumbnail: 'https://img.upanhnhanh.com/341674e9ef645c10a9a5b86d7a572fd0', filter: { country_code: 'au-my', type: 'phim-le' } },
-];
-
-const TopicCard = memo(function TopicCard({ topic }: { topic: typeof TOPICS[number] }) {
-  const router = useRouter();
-  const handlePress = useCallback(() => {
-    router.push({
-      pathname: '/category/[slug]',
-      params: { slug: topic.slug, title: topic.name, filter: JSON.stringify(topic.filter) },
-    });
-  }, [router, topic]);
-  return (
-    <TouchableOpacity style={[styles.topicCard, { backgroundColor: topic.color }]} activeOpacity={0.82} onPress={handlePress}>
-      {/* tc-thumb: ảnh bên phải */}
-      <Image
-        source={{ uri: topic.thumbnail }}
-        style={styles.topicThumb}
-        resizeMode="cover"
-        fadeDuration={0}
-      />
-      {/* tc-overlay: màu chủ đạo che trái, gradient mờ dần sang phải */}
-      <LinearGradient
-        colors={[topic.color, `${topic.color}cc`, `${topic.color}00`]}
-        locations={[0, 0.35, 0.62]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.topicOverlay}
-      />
-      {/* tc-glow: ánh sáng dưới */}
-      <LinearGradient
-        colors={['transparent', `${topic.color}cc`]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={styles.topicGlow}
-      />
-      {/* tc-body: tên chủ đề */}
-      <View style={styles.topicBody}>
-        <Text style={styles.topicTitle} numberOfLines={2}>{topic.name}</Text>
-      </View>
-    </TouchableOpacity>
-  );
-});
-
 type SectionConfig = {
   key: string;
   title: string;
@@ -218,14 +151,9 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const [selectedFilter, setSelectedFilter] = useState('Đề xuất');
   const [featuredMovies, setFeaturedMovies] = useState<Movie[]>([]);
   const [top10Movies, setTop10Movies] = useState<Movie[]>([]);
   const [sectionMovies, setSectionMovies] = useState<Record<string, Movie[]>>({});
-  const [searchMenuVisible, setSearchMenuVisible] = useState(false);
-  const [genreModalVisible, setGenreModalVisible] = useState(false);
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
-  const [genreSort, setGenreSort] = useState<'moi-nhat' | 'xem-nhieu'>('moi-nhat');
   const [watchHistory, setWatchHistory] = useState<WatchHistoryEntry[]>([]);
   const [homeReady, setHomeReady] = useState(false);
   const showTrailers = true;
@@ -265,8 +193,7 @@ export default function HomeScreen() {
 
   // Reload watch history every time screen is focused
   useFocusEffect(useCallback(() => {
-    if (!user) { setWatchHistory([]); return; }
-    getWatchHistory(user.id).then((items) => setWatchHistory(items.slice(0, 20)));
+    getWatchHistory(user?.id).then((items) => setWatchHistory(items.slice(0, 20)));
   }, [user]));
 
   useEffect(() => {
@@ -359,40 +286,6 @@ export default function HomeScreen() {
 
   const sectionKeyExtractor = useCallback((item: SectionConfig) => item.key, []);
 
-  const handleFilterPress = useCallback((option: string) => {
-    if (option === 'Phim bộ') {
-      router.push({ pathname: '/category/[slug]', params: { slug: 'phim-bo', title: 'Phim bộ', type: 'list' } } as any);
-    } else if (option === 'Phim lẻ') {
-      router.push({ pathname: '/category/[slug]', params: { slug: 'phim-le', title: 'Phim lẻ', type: 'list' } } as any);
-    } else if (option === 'Thể loại') {
-      setSelectedGenres([]);
-      setGenreSort('moi-nhat');
-      setGenreModalVisible(true);
-    } else {
-      setSelectedFilter(option);
-    }
-  }, [router]);
-
-  const handleGenreApply = useCallback(() => {
-    setGenreModalVisible(false);
-    const primary = selectedGenres[0];
-    if (!primary) return;
-    const genreObj = GENRES.find((g) => g.slug === primary);
-    const genreNames = selectedGenres
-      .map((s) => GENRES.find((g) => g.slug === s)?.name ?? s)
-      .join(',');
-    router.push({
-      pathname: '/category/[slug]',
-      params: {
-        slug: primary,
-        title: 'Thể loại',
-        type: 'genre',
-        genres: genreNames,
-        sort: genreSort,
-      },
-    } as any);
-  }, [selectedGenres, genreSort, router]);
-
   const renderTop10Card = useCallback(
     ({ item, index }: { item: Movie; index: number }) => <Top10Card item={item} index={index} />,
     []
@@ -455,25 +348,6 @@ export default function HomeScreen() {
   const listHeader = useMemo(() => (
     <Animated.View style={{ opacity: fadeAnim }}>
       {<FeaturedCarousel showTrailers={showTrailers} />}
-      <View style={[styles.sectionContainer, { marginTop: 16 }]}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Bạn đang quan tâm gì?</Text>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.topicScroll} nestedScrollEnabled>
-          {TOPICS.slice(0, TOPICS_PREVIEW).map((topic) => (
-            <TopicCard key={topic.slug} topic={topic} />
-          ))}
-          <TouchableOpacity
-            style={[styles.topicCard, styles.topicSeeAll]}
-            activeOpacity={0.8}
-            onPress={() => router.push('/topics' as any)}
-          >
-            <Text style={styles.topicSeeAllCount}>+{TOPICS.length - TOPICS_PREVIEW}</Text>
-            <Text style={styles.topicSeeAllText}>Xem tất cả</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-
       {watchHistory.length > 0 && (
         <View style={styles.sectionContainer}>
           <View style={styles.sectionHeader}>
@@ -535,24 +409,6 @@ export default function HomeScreen() {
             style={styles.brandLogo}
             resizeMode="contain"
           />
-        <View style={styles.searchControl}>
-          <TouchableOpacity
-            style={styles.searchTrigger}
-            activeOpacity={0.82}
-            onPress={() => router.push('/search' as any)}
-          >
-            <Search size={18} color={Colors.textSecondary} />
-            <Text style={styles.searchTriggerText}>Tìm kiếm phim,...</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.filterTrigger}
-            activeOpacity={0.82}
-            onPress={() => setSearchMenuVisible(true)}
-          >
-            <SlidersHorizontal size={17} color={Colors.text} />
-            <Text style={styles.filterTriggerText}>Lọc</Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       <FlatList
@@ -569,111 +425,6 @@ export default function HomeScreen() {
         windowSize={5}
         style={styles.scrollView}
       />
-
-      <Modal
-        visible={searchMenuVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setSearchMenuVisible(false)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setSearchMenuVisible(false)} />
-        <View style={styles.searchMenu}>
-          <View style={styles.searchMenuHeader}>
-            <View>
-              <Text style={styles.searchMenuEyebrow}>BỘ LỌC</Text>
-              <Text style={styles.searchMenuTitle}>Lọc phim</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.searchMenuClose}
-              onPress={() => setSearchMenuVisible(false)}
-              activeOpacity={0.75}
-            >
-              <X size={20} color={Colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.searchMenuOptions}>
-            {FILTER_OPTIONS.map((option) => (
-              <TouchableOpacity
-                key={option}
-                style={[styles.searchMenuOption, selectedFilter === option && styles.searchMenuOptionActive]}
-                onPress={() => {
-                  setSearchMenuVisible(false);
-                  handleFilterPress(option);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.searchMenuOptionText, selectedFilter === option && styles.searchMenuOptionTextActive]}>
-                  {option}
-                </Text>
-                <Text style={[styles.searchMenuArrow, selectedFilter === option && styles.searchMenuArrowActive]}>›</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </Modal>
-
-      {/* Genre picker modal */}
-      <Modal
-        visible={genreModalVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setGenreModalVisible(false)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setGenreModalVisible(false)} />
-        <View style={styles.genreModal}>
-          <View style={styles.genreModalHeader}>
-            <Text style={styles.genreModalTitle}>Thể loại</Text>
-            <TouchableOpacity onPress={() => setGenreModalVisible(false)}>
-              <X size={20} color={Colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView contentContainerStyle={styles.genreChipWrap} showsVerticalScrollIndicator={false}>
-            {GENRES.map((g) => {
-              const active = selectedGenres.includes(g.slug);
-              return (
-                <TouchableOpacity
-                  key={g.slug}
-                  style={[styles.genreChip, active && styles.genreChipActive]}
-                  onPress={() =>
-                    setSelectedGenres((prev) =>
-                      active ? prev.filter((s) => s !== g.slug) : [...prev, g.slug]
-                    )
-                  }
-                  activeOpacity={0.75}
-                >
-                  <Text style={[styles.genreChipText, active && styles.genreChipTextActive]}>{g.name}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          <View style={styles.genreSortRow}>
-            {(['moi-nhat', 'xem-nhieu'] as const).map((s) => (
-              <TouchableOpacity
-                key={s}
-                style={[styles.sortChip, genreSort === s && styles.sortChipActive]}
-                onPress={() => setGenreSort(s)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.sortChipText, genreSort === s && styles.sortChipTextActive]}>
-                  {s === 'moi-nhat' ? 'Mới nhất' : 'Xem nhiều'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <TouchableOpacity
-            style={[styles.applyBtn, selectedGenres.length === 0 && styles.applyBtnDisabled]}
-            onPress={handleGenreApply}
-            activeOpacity={0.85}
-            disabled={selectedGenres.length === 0}
-          >
-            <Text style={styles.applyBtnText}>Lọc kết quả</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -759,64 +510,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  // Topic cards
-  topicScroll: {
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  topicCard: {
-    width: 160,
-    height: 88,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  topicThumb: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: '65%',
-  },
-  topicOverlay: {
-    ...StyleSheet.absoluteFill,
-  },
-  topicGlow: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 40,
-  },
-  topicBody: {
-    position: 'absolute',
-    left: 12,
-    bottom: 10,
-    right: '55%',
-  },
-  topicTitle: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
-  },
-  topicSeeAll: {
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  topicSeeAllCount: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  topicSeeAllText: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 12,
-    fontWeight: '600',
-  },
   // Top 10
   top10ScrollContent: {
     paddingHorizontal: 16,
@@ -881,15 +574,15 @@ const styles = StyleSheet.create({
   },
   episodeBadgeSmallText: {
     color: Colors.text,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '600',
   },
   top10BadgesContainer: {
     position: 'absolute',
     top: 6,
     left: 6,
-    flexDirection: 'column',
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 4,
   },
   top10BadgeInner: {

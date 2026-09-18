@@ -12,21 +12,21 @@ const CARD_WIDTH = Math.floor((SCREEN_WIDTH - H_PAD * 2 - GAP) / 2);
 const CARD_HEIGHT = Math.round(CARD_WIDTH * 0.62);
 
 const TOPICS = [
-  { slug: 'hot-ran-ran', name: 'Hot Rần Rần', color: '#e5091a', thumbnail: 'https://sf-static.onflixcdn.pics/images/pic/1770999672_Sarah_onflix.webp', filter: { sort_by: 'views', status: 'ongoing' } },
-  { slug: 'dang-chieu-phat', name: 'Đang Chiếu Phát', color: '#b5420a', thumbnail: 'https://img.upanhnhanh.com/545e7a4895048bd8fe1219cb09eb1e54', filter: { status: 'ongoing' } },
-  { slug: 'phim-truyen-hinh-trung-quoc-dai-luc', name: 'Trung Quốc', color: '#1a6b3a', thumbnail: 'https://img.upanhnhanh.com/88c5903ca2638698c9a176e5d1effa1f', filter: { country_code: 'trung-quoc', type: 'phim-bo' } },
-  { slug: 'hoat-hinh-chon-loc', name: 'Hoạt hình', color: '#1a3a6b', thumbnail: 'https://img.upanhnhanh.com/5f4e92805e8b87a3c539df9112ac7312', filter: { q: 'hoạt hình' } },
-  { slug: 'phim-hanh-dong', name: 'Hành Động', color: '#8b1a1a', thumbnail: 'https://img.upanhnhanh.com/92b005dcea75c446ec09c7f334d6fe07', filter: { genre_ids: 'hanh-dong', sort_by: 'release_date' } },
-  { slug: 'phim-co-trang', name: 'Cổ Trang', color: '#4a2a0a', thumbnail: 'https://img.upanhnhanh.com/a5e63f88be0d159bc0318c2fcb6623dc', filter: { genre_ids: 'co-trang', sort_by: 'release_date' } },
-  { slug: 'phim-han-quoc', name: 'Hàn Quốc', color: '#1a2a5c', thumbnail: 'https://img.upanhnhanh.com/94571cba98cfe7b5468d2d99e213bb97', filter: { country_code: 'han-quoc' } },
-  { slug: 'thanh-xuan', name: 'Thanh xuân', color: '#0a2a4a', thumbnail: 'https://img.upanhnhanh.com/cd87839b695dc11c3fccf59bc03cca6f', filter: { q: 'thanh xuân' } },
-  { slug: 'chua-lanh-tam-hon', name: 'Chữa Lành', color: '#5c1a1a', thumbnail: 'https://img.upanhnhanh.com/bebf83030f11150f0153b14c794bc4d7', filter: { q: 'chữa lành' } },
-  { slug: 'phim-tinh-cam', name: 'Tình Cảm', color: '#6b1a3a', thumbnail: 'https://img.upanhnhanh.com/91867964fa50f964b1445cbce6b95fb9', filter: { genre_ids: 'tinh-cam', sort_by: 'release_date' } },
-  { slug: 'phim-4k', name: 'Phim 4K', color: '#1a1a1a', thumbnail: 'https://img.upanhnhanh.com/d8440580bcd377b6668c98c5f5038d29', filter: { quality: '4K' } },
-  { slug: 'phim-cong-so', name: 'Công Sở', color: '#0a1a2a', thumbnail: 'https://img.upanhnhanh.com/255832b967f88f9009ddd08ecc90465b', filter: { q: 'công sở' } },
-  { slug: 'phim-hinh-su', name: 'Hình Sự', color: '#0a1a3a', thumbnail: 'https://img.upanhnhanh.com/8cbe701c177f4ba1f34c791f4daa21f6', filter: { genre_ids: 'hinh-su', sort_by: 'release_date' } },
-  { slug: 'phim-kinh-di', name: 'Kinh Dị', color: '#1a0a2a', thumbnail: 'https://img.upanhnhanh.com/1df553af88c75c5042a141828c78e6d3', filter: { genre_ids: 'kinh-di', sort_by: 'release_date' } },
-  { slug: 'dien-anh-au-my', name: 'Điện ảnh Âu Mỹ', color: '#5c1a1a', thumbnail: 'https://img.upanhnhanh.com/341674e9ef645c10a9a5b86d7a572fd0', filter: { country_code: 'au-my', type: 'phim-le' } },
+  { slug: 'hot-ran-ran', name: 'Hot Rần Rần', color: '#e5091a', thumbnail: 'https://sf-static.onflixcdn.com/images/pic/1788018470_2d403c2ce2a4ce0d04f3ceb1d341eb7b.webp', filter: { sort_by: 'views', status: 'ongoing' } },
+  { slug: 'dang-chieu-phat', name: 'Đang Chiếu', color: '#b5420a', thumbnail: 'https://sf-static.onflixcdn.com/images/pic/1776085351_url.webp', filter: { status: 'ongoing' } },
+  { slug: 'phim-truyen-hinh-trung-quoc-dai-luc', name: 'Trung Quốc', color: '#1a6b3a', thumbnail: 'https://sf-static.onflixcdn.com/images/pic/1767009807_url.webp', filter: { country_code: 'trung-quoc', type: 'phim-bo' } },
+  { slug: 'hoat-hinh-chon-loc', name: 'Hoạt hình', color: '#1a3a6b', thumbnail: 'https://sf-static.onflixcdn.com/images/default/1778608695_gemini-1778608685086.webp', filter: { q: 'hoạt hình' } },
+  { slug: 'phim-hanh-dong', name: 'Hành Động', color: '#8b1a1a', thumbnail: 'https://sf-static.onflixcdn.com/images/vi_content_cdn/1784281496_url.jpg', filter: { genre_ids: 'hanh-dong', sort_by: 'release_date' } },
+  { slug: 'phim-co-trang', name: 'Cổ Trang', color: '#4a2a0a', thumbnail: 'https://sf-static.onflixcdn.com/images/pic/1776085351_url.webp', filter: { genre_ids: 'co-trang', sort_by: 'release_date' } },
+  { slug: 'phim-han-quoc', name: 'Hàn Quốc', color: '#1a2a5c', thumbnail: 'https://sf-static.onflixcdn.com/images/chinh_1749641594_6849697aaf31d.webp', filter: { country_code: 'han-quoc' } },
+  { slug: 'thanh-xuan', name: 'Thanh xuân', color: '#0a2a4a', thumbnail: 'https://sf-static.onflixcdn.com/images/1752561742_url.webp', filter: { q: 'thanh xuân' } },
+  { slug: 'chua-lanh-tam-hon', name: 'Chữa Lành', color: '#5c1a1a', thumbnail: 'https://sf-static.onflixcdn.com/images/pic/1755686803_url.webp', filter: { q: 'chữa lành' } },
+  { slug: 'phim-tinh-cam', name: 'Tình Cảm', color: '#6b1a3a', thumbnail: 'https://sf-static.onflixcdn.com/images/default/1778696072_url.webp', filter: { genre_ids: 'tinh-cam', sort_by: 'release_date' } },
+  { slug: 'phim-4k', name: 'Phim 4K', color: '#1a1a1a', thumbnail: 'https://sf-static.onflixcdn.com/images/1754045028_url.webp', filter: { quality: '4K' } },
+  { slug: 'phim-cong-so', name: 'Công Sở', color: '#0a1a2a', thumbnail: 'https://sf-static.onflixcdn.com/images/default/1767962758_url.webp', filter: { q: 'công sở' } },
+  { slug: 'phim-hinh-su', name: 'Hình Sự', color: '#0a1a3a', thumbnail: 'https://sf-static.onflixcdn.com/images/pic/1755774476_url.webp', filter: { genre_ids: 'hinh-su', sort_by: 'release_date' } },
+  { slug: 'phim-kinh-di', name: 'Kinh Dị', color: '#1a0a2a', thumbnail: 'https://sf-static.onflixcdn.com/images/default/1785152512_url.jpg', filter: { genre_ids: 'kinh-di', sort_by: 'release_date' } },
+  { slug: 'dien-anh-au-my', name: 'Điện ảnh Âu Mỹ', color: '#5c1a1a', thumbnail: 'https://sf-static.onflixcdn.com/images/pic/1769359827_iron.webp', filter: { country_code: 'au-my', type: 'phim-le' } },
 ];
 
 type Topic = typeof TOPICS[number];

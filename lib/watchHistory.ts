@@ -42,6 +42,10 @@ async function localSet(list: WatchHistoryEntry[]): Promise<void> {
   } catch {}
 }
 
+function entryKey(entry: Pick<WatchHistoryEntry, 'movieSlug' | 'episodeName'>): string {
+  return `${entry.movieSlug}::${entry.episodeName || 'Tập 1'}`;
+}
+
 // ─── Supabase helpers (logged-in, cross-device) ────────────
 
 async function remoteGet(userId: string): Promise<WatchHistoryEntry[]> {
@@ -144,9 +148,17 @@ export async function getWatchHistory(
       const items = await remoteGet(userId);
       // Also merge local-only entries not yet on server
       const local = await localGet();
-      const remoteKeys = new Set(items.map((e) => e.movieSlug));
-      const localOnly = local.filter((e) => !remoteKeys.has(e.movieSlug));
-      return [...items, ...localOnly].slice(0, MAX_ITEMS);
+      const merged = new Map<string, WatchHistoryEntry>();
+      [...items, ...local].forEach((entry) => {
+        const key = entryKey(entry);
+        const existing = merged.get(key);
+        if (!existing || new Date(entry.updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
+          merged.set(key, entry);
+        }
+      });
+      return Array.from(merged.values())
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+        .slice(0, MAX_ITEMS);
     } catch {
       return localGet();
     }
@@ -165,8 +177,8 @@ export async function saveWatchProgress(
   // Always persist locally for fast offline reads
   try {
     const list = await localGet();
-    // One entry per movie — match by movieSlug (always stable)
-    const idx = list.findIndex((e) => e.movieSlug === entry.movieSlug);
+    // Keep progress separately for each episode of a movie.
+    const idx = list.findIndex((e) => entryKey(e) === entryKey(entry));
     const updated: WatchHistoryEntry = {
       ...entry,
       updatedAt: new Date().toISOString(),

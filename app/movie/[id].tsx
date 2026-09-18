@@ -23,6 +23,7 @@ import {
   apiCheckFavorite,
   apiToggleFavorite,
 } from '@/lib/authApi';
+import { isFavorite as isLocalFavorite, removeFavorite as removeLocalFavorite, saveLocalFavorite } from '@/lib/favorites';
 import {
   ChevronLeft,
   Play,
@@ -44,6 +45,7 @@ import { CastMember, getTMDBCast, searchTMDB } from '@/lib/tmdb';
 import { WebView } from 'react-native-webview';
 import { stashPlayerServers } from '@/lib/playerSession';
 import { getCachedMovieBySlug } from '@/lib/ophim';
+import { formatTime, getWatchHistory, WatchHistoryEntry } from '@/lib/watchHistory';
 
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -91,6 +93,10 @@ function detectAudioType(serverName: string): 'vietsub' | 'thuyet-minh' | 'defau
   return 'default';
 }
 
+function normalizeEpisodeName(value?: string): string {
+  return String(value ?? 'Tập 1').replace(/^tập\s*/i, '').trim().toLowerCase() || '1';
+}
+
 type ServerMachine = {
   key: string;
   label: string;
@@ -109,7 +115,9 @@ export default function MovieDetailScreen() {
   const { user, tokens } = useAuth();
   const { showToast } = useToast();
   const cachedMovie = id ? getCachedMovieBySlug(id) : null;
-  const didAutoResume = useRef(false);
+  const lastResumeKeyRef = useRef<string | null>(null);
+  const navigatingToPlayerRef = useRef(false);
+  const playerNavGuardRef = useRef<string | null>(null);
   const [movie, setMovie] = useState<Movie | null>(cachedMovie);
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteLoading, setFavoriteLoading] = useState(false);
@@ -134,6 +142,7 @@ export default function MovieDetailScreen() {
   const [suggested, setSuggested] = useState<any[]>([]);
   const [suggestedLoading, setSuggestedLoading] = useState(false);
   const [suggestedFetched, setSuggestedFetched] = useState(false);
+  const [episodeProgress, setEpisodeProgress] = useState<Record<string, WatchHistoryEntry>>({});
   const [upcomingShowtime, setUpcomingShowtime] = useState<{
     date: string;
     time: string | null;
@@ -152,9 +161,39 @@ export default function MovieDetailScreen() {
         if (data && data.length > 0) setHtServers(data);
       });
   }, [movie?.slug]);
+  // Khi quay về từ player, reset — nhưng KHÔNG reset trong lúc đang trong quá
+  // trình chuyển sang player (đang await lock orientation), nếu không sẽ huỷ
+  // ngang việc điều hướng đang chờ.
+  useFocusEffect(useCallback(() => {
+    if (!navigatingToPlayerRef.current) {
+      setPlayerParams(null);
+      // Reset guard để lần bấm play tiếp theo (kể cả cùng tập, cùng progress)
+      // luôn được coi là một lượt điều hướng mới, tránh bị chặn nhầm và kẹt
+      // ở màn hình đen.
+      playerNavGuardRef.current = null;
+    }
+  }, []));
 
-  // Khi quay về từ player, reset
-  useFocusEffect(useCallback(() => { setPlayerParams(null); }, []));
+  // Reload per-episode progress when returning from the player.
+  useFocusEffect(useCallback(() => {
+    if (!movie?.slug) return;
+    let cancelled = false;
+    getWatchHistory(user?.id).then((entries) => {
+      if (cancelled) return;
+      const next: Record<string, WatchHistoryEntry> = {};
+      entries
+        .filter((entry) => entry.movieSlug === movie.slug)
+        .forEach((entry) => {
+          const key = normalizeEpisodeName(entry.episodeName);
+          const previous = next[key];
+          if (!previous || new Date(entry.updatedAt).getTime() > new Date(previous.updatedAt).getTime()) {
+            next[key] = entry;
+          }
+        });
+      setEpisodeProgress(next);
+    });
+    return () => { cancelled = true; };
+  }, [movie?.slug, user?.id]));
 
   // Fetch cast from TMDB when Diễn viên tab is selected
   useEffect(() => {
@@ -179,18 +218,33 @@ export default function MovieDetailScreen() {
     })();
   }, [activeTab, movie, castFetched]);
 
-  // fetch gallery from TMDB when Gallery tab is selected
+  // Load gallery from phimapi first, then fall back to the legacy OPhim endpoint.
   useEffect(() => {
     if (activeTab !== 'Gallery' || !movie || galleryFetched) return;
     setGalleryFetched(true);
     setGalleryLoading(true);
-    fetch(`https://ophim1.com/v1/api/phim/${movie.slug || id}/images`)
-      .then(r => r.json())
-      .then(json => {
-        if (json?.data?.images) setGallery(json.data.images);
-      })
-      .catch(() => { })
-      .finally(() => setGalleryLoading(false));
+    (async () => {
+      const slug = movie.slug || id;
+      try {
+        try {
+          const response = await fetch(`https://phimapi.com/v1/api/phim/${slug}/images`);
+          const json = await response.json();
+          const images = json?.data?.images;
+          if (Array.isArray(images) && images.length > 0) {
+            setGallery(images);
+            return;
+          }
+        } catch { /* Try the legacy endpoint below. */ }
+
+        try {
+          const response = await fetch(`https://ophim1.com/v1/api/phim/${slug}/images`);
+          const json = await response.json();
+          if (Array.isArray(json?.data?.images)) setGallery(json.data.images);
+        } catch { /* Keep the empty state. */ }
+      } finally {
+        setGalleryLoading(false);
+      }
+    })();
   }, [activeTab, movie, galleryFetched]);
 
   useEffect(() => {
@@ -200,10 +254,16 @@ export default function MovieDetailScreen() {
 
     const firstGenreSlug = toSlug(movie.genres?.[0] ?? ''); if (!firstGenreSlug) { setSuggestedLoading(false); return; }
 
-    fetch(`https://ophim1.com/v1/api/the-loai/${firstGenreSlug}?sort_field=modified.time&sort_type=desc&limit=20`)
-      .then(r => r.json())
-      .then(json => {
-        const items: any[] = json?.data?.items ?? [];
+    (async () => {
+      try {
+        let response = await fetch(`https://phimapi.com/v1/api/the-loai/${firstGenreSlug}?sort_field=modified.time&sort_type=desc&limit=20`);
+        let json = await response.json();
+        let items: any[] = json?.data?.items ?? [];
+        if (!Array.isArray(items) || items.length === 0) {
+          response = await fetch(`https://ophim1.com/v1/api/the-loai/${firstGenreSlug}?sort_field=modified.time&sort_type=desc&limit=20`);
+          json = await response.json();
+          items = json?.data?.items ?? [];
+        }
         const parseModifiedTime = (value: any): number => {
           const raw = value?.modified?.time ?? value?.modified?.date ?? value?.updated_at;
           if (typeof raw === 'number' && Number.isFinite(raw)) {
@@ -235,30 +295,35 @@ export default function MovieDetailScreen() {
           current_episode: Number(item.episode_current) || 0,
           imdb_rating: 0,
         })));
-      })
-      .catch(() => { })
-      .finally(() => setSuggestedLoading(false));
+      } catch { /* Keep the empty state. */ }
+      finally { setSuggestedLoading(false); }
+    })();
   }, [activeTab, movie, suggestedFetched]);
 
-  // Lock orientation WHILE showing black screen, THEN navigate → no rotation flash
+  // Lock orientation WHILE showing black screen, THEN navigate → no rotation flash.
+  // Lưu ý: KHÔNG dùng cờ "cancelled" để chặn router.push. router.push là hành
+  // động điều hướng toàn cục — nó vẫn hợp lệ dù component gọi nó có bị unmount
+  // giữa chừng hay không (ví dụ khi Expo Router dedup lại route trùng path
+  // trong lúc đang chờ lockAsync). Chặn nó lại là nguyên nhân gây bug "bấm
+  // Tiếp tục xem không vào player".
   useEffect(() => {
     if (!playerParams) return;
-    let cancelled = false;
-    const go = async () => {
+    const navKey = `${playerParams.url}|${playerParams.episode}|${playerParams.serverLabel}|${playerParams.initialTime ?? ''}`;
+    if (playerNavGuardRef.current === navKey) return; // tránh push trùng nếu effect chạy lại với cùng params
+    playerNavGuardRef.current = navKey;
+    navigatingToPlayerRef.current = true;
+    (async () => {
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const SO = require('expo-screen-orientation');
         await SO.lockAsync(SO.OrientationLock.LANDSCAPE);
       } catch (_) { }
-      if (!cancelled) {
-        router.push({
-          pathname: '/movie/player',
-          params: playerParams,
-        } as any);
-      }
-    };
-    go();
-    return () => { cancelled = true; };
+      router.push({
+        pathname: '/movie/player',
+        params: playerParams,
+      } as any);
+      navigatingToPlayerRef.current = false;
+    })();
   }, [playerParams]);
 
   useEffect(() => {
@@ -382,6 +447,8 @@ export default function MovieDetailScreen() {
   useEffect(() => {
     if (id && user && movie) {
       loadGtavnIdAndCheckFavorite();
+    } else if (id && movie) {
+      isLocalFavorite(movie.slug || id).then(setIsFavorite);
     } else {
       setIsFavorite(false);
     }
@@ -389,8 +456,20 @@ export default function MovieDetailScreen() {
 
   // Auto-resume: open player directly when navigated from watch history
   useEffect(() => {
-    if (!movie || didAutoResume.current || !resumeTime) return;
-    didAutoResume.current = true;
+    // console.log('[MovieDetail] auto-resume effect check', {
+    //   instanceId: instanceIdRef.current,
+    //   hasMovie: !!movie,
+    //   resumeTime,
+    //   lastResumeKey: lastResumeKeyRef.current,
+    // });
+    if (!movie || !resumeTime) return;
+    const resumeKey = `${resumeTime}|${resumeEpisode ?? ''}|${resumeServer ?? ''}`;
+    if (lastResumeKeyRef.current === resumeKey) {
+      // console.log('[MovieDetail] auto-resume SKIPPED — key đã dùng rồi:', resumeKey);
+      return;
+    }
+    // console.log('[MovieDetail] auto-resume PROCEEDING với key:', resumeKey);
+    lastResumeKeyRef.current = resumeKey;
     const servers = (movie.servers?.length ?? 0) > 0
       ? movie.servers!
       : [{ name: 'Vietsub #1', episodes: movie.episodes_data ?? [] }];
@@ -566,7 +645,24 @@ export default function MovieDetailScreen() {
 
   const toggleFavorite = async () => {
     if (!user) {
-      showToast('Vui lòng đăng nhập để yêu thích phim', 'error');
+      if (!movie) return;
+      try {
+        setFavoriteLoading(true);
+        const movieSlug = movie.slug || id;
+        if (isFavorite) {
+          await removeLocalFavorite(movieSlug);
+          setIsFavorite(false);
+          showToast('Đã xoá khỏi Yêu thích', 'success');
+        } else {
+          await saveLocalFavorite(movie);
+          setIsFavorite(true);
+          showToast('Đã thêm vào Yêu thích', 'success');
+        }
+      } catch (e: any) {
+        showToast(e?.message || 'Có lỗi xảy ra', 'error');
+      } finally {
+        setFavoriteLoading(false);
+      }
       return;
     }
     if (favoriteLoading) return;
@@ -657,14 +753,14 @@ export default function MovieDetailScreen() {
 
         {/* ── Hero section ── */}
         <View style={styles.hero}>
-        {/* BG poster with fade-to-background gradient */}
-<Image source={{ uri: movie.poster_url }} style={styles.heroBg} resizeMode="cover" />
-<View style={styles.heroDimmer} />
-<LinearGradient
-  colors={['transparent', 'transparent', Colors.background]}
-  locations={[0, 0.45, 1]}
-  style={styles.heroFade}
-/>
+          {/* BG poster with fade-to-background gradient */}
+          <Image source={{ uri: movie.poster_url }} style={styles.heroBg} resizeMode="cover" />
+          <View style={styles.heroDimmer} />
+          <LinearGradient
+            colors={['transparent', 'transparent', Colors.background]}
+            locations={[0, 0.45, 1]}
+            style={styles.heroFade}
+          />
 
           {/* Back button */}
           <SafeAreaView edges={['top']} style={styles.backWrap}>
@@ -965,20 +1061,36 @@ export default function MovieDetailScreen() {
                 {currentEps.length > 0 ? (
                   <View style={styles.episodeGrid}>
                     {visibleEpisodes.map((ep, idx) => (
-                      <TouchableOpacity
-                        key={`${effectiveServerIdx}:${clampedChunkIdx}:${idx}:${ep.slug || ep.name}`}
-                        style={styles.episodeBtn}
-                        activeOpacity={0.75}
-                        onPress={() => openPlayer(
-                          ep.link_m3u8 || ep.link_embed,
-                          ep.name,
-                          movieServers[effectiveServerIdx]?.name ?? '',
-                          undefined,
-                          ep.link_embed  // truyền thêm embedUrl
-                        )}                      >
-                        <Play size={10} color="#fff" fill="#fff" />
-                        <Text style={styles.episodeBtnText}>{!isNaN(Number(ep.name)) ? 'Tập ' + ep.name : ep.name}</Text>
-                      </TouchableOpacity>
+                      (() => {
+                        const progress = episodeProgress[normalizeEpisodeName(ep.name)];
+                        const progressPercent = progress?.duration
+                          ? Math.min(100, Math.max(0, (progress.time / progress.duration) * 100))
+                          : 0;
+                        return (
+                          <TouchableOpacity
+                            key={`${effectiveServerIdx}:${clampedChunkIdx}:${idx}:${ep.slug || ep.name}`}
+                            style={styles.episodeBtn}
+                            activeOpacity={0.75}
+                            onPress={() => openPlayer(
+                              ep.link_m3u8 || ep.link_embed,
+                              ep.name,
+                              movieServers[effectiveServerIdx]?.name ?? '',
+                              progress?.duration > 0 ? progress.time : undefined,
+                              ep.link_embed
+                            )}
+                          >
+                            <Play size={10} color="#fff" fill="#fff" />
+                            <Text style={styles.episodeBtnText} numberOfLines={1}>
+                              {!isNaN(Number(ep.name)) ? 'Tập ' + ep.name : ep.name}
+                            </Text>
+                            {!!progress && progress.duration > 0 && (
+                              <View style={styles.episodeProgressTrack}>
+                                <View style={[styles.episodeProgressFill, { width: `${progressPercent}%` }]} />
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })()
                     ))}
                   </View>
                 ) : (
@@ -1227,28 +1339,28 @@ const styles = StyleSheet.create({
 
   // Hero
   hero: { minHeight: 420 },
-heroBg: {
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  height: 420,
-},
-heroDimmer: {
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  height: 420,
-  backgroundColor: 'rgba(0,0,0,0.25)',
-},
-heroFade: {
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  height: 420,
-},
+  heroBg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 420,
+  },
+  heroDimmer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 420,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  heroFade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 420,
+  },
   backWrap: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
   backBtn: {
     margin: 14,
@@ -1503,17 +1615,31 @@ heroFade: {
   episodeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 5,
     backgroundColor: Colors.cardBackground,
     paddingHorizontal: 10,
-    paddingVertical: 10,
+    height: 40,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: Colors.border,
     width: (SCREEN_WIDTH - 32 - 16) / 3,
-    justifyContent: 'center',
+    overflow: 'hidden',
+    position: 'relative',
   },
   episodeBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  episodeProgressTrack: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  episodeProgressFill: {
+    height: '100%',
+    backgroundColor: '#22C55E',
+  },
 
   // Cast grid
   castSectionTitle: {

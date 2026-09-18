@@ -36,7 +36,18 @@ export const FEATURED_OVERRIDES: FeaturedOverride[] = [
     slug: 'de-che-dai-han-phan-2',
     titleImg: 'https://sf-static.onflixcdn.com/images/pic/1788960708_MADE-IN-KOREA-2-9-9-2026.png',
     trailerUrl: 'https://trailer.onflixcdn.com/trailer/09092026/3c030e62-486f-4333-9ece-d692d6ce1554.m3u8'
+  },
+  {
+    slug: 'su-huynh-qua-can-trong',
+    titleImg: 'https://sf-static.onflixcdn.com/images/vi_content_cdn/1787129397_952638629b4d4b16946d69161fe4e5df.webp.png',
+    trailerUrl: 'https://trailer.onflixcdn.com/trailer/19082026/28b7d212-0fe5-4c1f-82ca-ce3028c1c363.m3u8'
+  },
+  {
+    slug: 'minions-va-quai-vat',
+    titleImg: 'https://sf-static.onflixcdn.com/images/pic/1786470717_url.webp',
+    trailerUrl: 'https://trailer.onflixcdn.com/trailer/12082026/63ce4f2f-0400-4d2b-9e28-2c687d5c2c0a.m3u8'
   }
+
   
 ];
 

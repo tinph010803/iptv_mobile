@@ -71,10 +71,9 @@ function SearchMovieCard({ movie }: { movie: Movie }) {
     const subbedCount = (subbedServer?.episodes?.length ?? 0) > 0 ? subbedServer!.episodes.length : (subbedLastCount || movie.current_episode);
     const dubbedCount = (dubbedServer?.episodes?.length ?? 0) > 0 ? dubbedServer!.episodes.length : (dubbedLastCount || movie.current_episode);
     const thuyetMinhCount = (thuyetMinhServer?.episodes?.length ?? 0) > 0 ? thuyetMinhServer!.episodes.length : (thuyetMinhLastCount || movie.current_episode);
-    const audioPrefix = hasTM ? 'TM' : 'LT';
     const audioCount = hasTM ? thuyetMinhCount : dubbedCount;
-    const subbedText = isSeries ? `PĐ.${subbedCount}/${total}` : `PĐ.${subbedCount}`;
-    const dubbedText = isSeries ? `${audioPrefix}.${audioCount}/${total}` : `${audioPrefix}.${audioCount}`;
+    const subbedText = isSeries ? `PĐ.${subbedCount}` : 'PĐ.';
+    const dubbedText = isSeries ? `TM.${audioCount}` : 'TM.';
   return (
     <TouchableOpacity
       style={[styles.card, { width: CARD_WIDTH }]}
@@ -504,13 +503,13 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
   },
-  episodeText: { color: Colors.text, fontSize: 11, fontWeight: '600' },
+  episodeText: { color: Colors.text, fontSize: 9, fontWeight: '600' },
     badgesContainer: {
       position: 'absolute',
       bottom: 8,
       left: 8,
-      flexDirection: 'column',
-      alignItems: 'flex-start',
+      flexDirection: 'row',
+      alignItems: 'center',
       gap: 4,
     },
     ltBadge: {

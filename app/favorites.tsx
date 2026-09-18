@@ -15,6 +15,7 @@ import { Colors } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { apiGetFavorites, apiRemoveFavorite, FavoriteItem } from '@/lib/authApi';
+import { getLocalFavoriteItems, LocalFavoriteItem, removeFavorite as removeLocalFavorite } from '@/lib/favorites';
 
 function getPosterUrl(poster: Record<string, string> | undefined): string {
   if (!poster) return '';
@@ -46,16 +47,19 @@ export default function FavoritesScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { showToast } = useToast();
-  const [items, setItems] = useState<FavoriteItem[]>([]);
+  const [items, setItems] = useState<Array<FavoriteItem | LocalFavoriteItem>>([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
 
   const loadFavorites = useCallback(async () => {
-    if (!user) return;
     try {
       setLoading(true);
-      const res = await apiGetFavorites();
-      setItems(res.items);
+      if (user) {
+        const res = await apiGetFavorites();
+        setItems(res.items);
+      } else {
+        setItems(await getLocalFavoriteItems());
+      }
     } catch (e: any) {
       showToast(e?.message || 'Không tải được danh sách yêu thích', 'error');
     } finally {
@@ -68,10 +72,13 @@ export default function FavoritesScreen() {
   }, [loadFavorites]);
 
   const handleRemove = async (item: FavoriteItem) => {
-    if (!user) return;
     try {
       setRemoving(item.id);
-      await apiRemoveFavorite(item.movie._id);
+      if (user) {
+        await apiRemoveFavorite(item.movie._id);
+      } else {
+        await removeLocalFavorite(item.movie.slug);
+      }
       setItems((prev) => prev.filter((f) => f.id !== item.id));
       showToast('Đã xoá khỏi Yêu thích', 'success');
     } catch (e: any) {
@@ -84,17 +91,6 @@ export default function FavoritesScreen() {
   const handlePress = (slug: string) => {
     router.push({ pathname: '/movie/[id]', params: { id: slug } });
   };
-
-  if (!user) {
-    return (
-      <SafeAreaView style={[styles.container, styles.center]} edges={['top']}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <ChevronLeft size={22} color={Colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.emptyText}>Vui lòng đăng nhập để xem yêu thích</Text>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
