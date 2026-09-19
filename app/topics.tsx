@@ -1,9 +1,35 @@
-import { StyleSheet, View, Text, FlatList, TouchableOpacity, Image, Dimensions } from 'react-native';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  StyleSheet,
+  View,
+  Text,
+  FlatList,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  ActivityIndicator,
+  Dimensions,
+  Alert,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { ChevronLeft } from 'lucide-react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { ChevronLeft, PackageOpen } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
+import { getTMDBSchedule, resolveSlugForItem, ScheduleItem } from '@/lib/tmdbSchedule';/* ------------------------------------------------------------------ */
+/*  Tabs                                                               */
+/* ------------------------------------------------------------------ */
+
+type TabKey = 'topics' | 'schedule';
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'topics', label: 'Tất cả chủ đề' },
+  { key: 'schedule', label: 'Lịch chiếu' },
+];
+
+/* ------------------------------------------------------------------ */
+/*  Mục 1: Tất cả chủ đề                                               */
+/* ------------------------------------------------------------------ */
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const H_PAD = 16;
@@ -31,7 +57,7 @@ const TOPICS = [
 
 type Topic = typeof TOPICS[number];
 
-export default function TopicsScreen() {
+function TopicsTab() {
   const router = useRouter();
 
   const renderItem = ({ item }: { item: Topic }) => (
@@ -70,33 +96,271 @@ export default function TopicsScreen() {
   );
 
   return (
+    <FlatList
+      data={TOPICS}
+      keyExtractor={(item) => item.slug}
+      renderItem={renderItem}
+      numColumns={2}
+      columnWrapperStyle={styles.row}
+      contentContainerStyle={styles.topicList}
+      showsVerticalScrollIndicator={false}
+    />
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Mục 2: Lịch chiếu                                                  */
+/* ------------------------------------------------------------------ */
+
+const WINDOW_SIZE = 15;
+const DAY_NAMES = ['CN', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+
+function toDateStr(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function buildInitialDays(from: Date, count: number): Date[] {
+  const result: Date[] = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(from);
+    d.setDate(from.getDate() + i);
+    result.push(d);
+  }
+  return result;
+}
+
+function isSameday(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+type ShowtimeItem = ScheduleItem;
+
+function ScheduleTab() {
+  const router = useRouter();
+  const today = useRef(new Date()).current;
+  const [days, setDays] = useState<Date[]>(() => buildInitialDays(today, WINDOW_SIZE));
+  const [selectedDay, setSelectedDay] = useState<Date>(today);
+  const [items, setItems] = useState<ShowtimeItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const dateBarRef = useRef<ScrollView>(null);
+  const requestIdRef = useRef(0);
+
+  const fetchSchedule = useCallback(async (date: Date) => {
+    const reqId = ++requestIdRef.current; // tránh dữ liệu ngày cũ ghi đè khi bấm đổi ngày nhanh
+    setLoading(true);
+    setItems([]);
+    try {
+      const data = await getTMDBSchedule(toDateStr(date));
+      if (reqId === requestIdRef.current) setItems(data);
+    } catch {
+      if (reqId === requestIdRef.current) setItems([]);
+    } finally {
+      if (reqId === requestIdRef.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSchedule(selectedDay);
+  }, [selectedDay, fetchSchedule]);
+
+  useEffect(() => {
+    const idx = days.findIndex((d) => isSameday(d, selectedDay));
+    if (idx >= 0 && dateBarRef.current) {
+      dateBarRef.current.scrollTo({ x: Math.max(0, idx * 68 - 16), animated: true });
+    }
+  }, [selectedDay, days]);
+
+  const handleSelectDay = (day: Date) => {
+    setSelectedDay(day);
+    const lastDay = days[days.length - 1];
+    if (isSameday(day, lastDay)) {
+      const next = new Date(lastDay);
+      next.setDate(lastDay.getDate() + 1);
+      setDays((prev) => [...prev, ...buildInitialDays(next, WINDOW_SIZE)]);
+    }
+  };
+
+  const renderDateItem = (day: Date, idx: number) => {
+    const isSelected = isSameday(day, selectedDay);
+    const isToday = isSameday(day, today);
+    const dayName = isToday ? 'Hôm nay' : DAY_NAMES[day.getDay()];
+    const dd = String(day.getDate()).padStart(2, '0');
+    const mm = String(day.getMonth() + 1).padStart(2, '0');
+    return (
+      <TouchableOpacity
+        key={idx}
+        style={[styles.dateItem, isSelected && styles.dateItemActive]}
+        onPress={() => handleSelectDay(day)}
+        activeOpacity={0.75}
+      >
+        <Text style={[styles.dateNum, isSelected && styles.dateNumActive]}>{dd}/{mm}</Text>
+        <Text style={[styles.dateName, isSelected && styles.dateNameActive]}>{dayName}</Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const openMovie = useCallback(async (item: ShowtimeItem) => {
+    const slug = item.slug || (await resolveSlugForItem(item));
+    if (!slug) console.log('[Schedule] không tìm thấy trong kho:', item.name, item.titles, item.year); 
+    if (!slug) {
+      Alert.alert('Chưa có phim', `"${item.name}" hiện chưa có trong kho phim của app.`);
+      return;
+    }
+    router.push({ pathname: '/movie/[id]', params: { id: slug } } as any);
+  }, [router]);
+
+  const renderItem = useCallback(({ item }: { item: ShowtimeItem }) => (
+    <TouchableOpacity
+      style={styles.movieCard}
+      activeOpacity={0.75}
+      onPress={() => openMovie(item)}
+    >
+      <Image
+        source={{ uri: item.poster }} style={styles.movieThumb}
+        resizeMode="cover"
+      />
+      <View style={styles.movieInfo}>
+        <Text style={styles.movieName} numberOfLines={2}>{item.name}</Text>
+        {!!item.originalName && item.originalName !== item.name && (
+          <Text style={styles.movieOrigin} numberOfLines={1}>{item.originalName}</Text>
+        )}
+        <Text style={[styles.movieEpisode, !item.episode && { opacity: 0.5 }]}>
+          {item.episode || 'Đang cập nhật tập'}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  ), [openMovie]);
+  const keyExtractor = useCallback((item: ShowtimeItem) => String(item.id), []);
+
+  return (
+    <View style={styles.flex}>
+      <View style={styles.dateBarWrapper}>
+        <ScrollView
+          ref={dateBarRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.dateBarContent}
+        >
+          {days.map((day, idx) => renderDateItem(day, idx))}
+        </ScrollView>
+        <View style={styles.dateBarBorder} />
+      </View>
+
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      ) : items.length === 0 ? (
+        <View style={styles.center}>
+          <PackageOpen size={48} color={Colors.textSecondary} style={styles.emptyIcon} />
+          <Text style={styles.emptyText}>
+            {isSameday(selectedDay, today)
+              ? 'Hôm nay không có lịch chiếu nào!'
+              : 'Ngày này không có lịch chiếu nào!'}
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          style={styles.flex}
+          data={items}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scheduleList}
+        />
+      )}
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Màn hình chính: 2 mục                                              */
+/* ------------------------------------------------------------------ */
+
+export default function ExploreScreen() {
+  const router = useRouter();
+  // Có thể mở thẳng mục lịch chiếu bằng: router.push('/explore?tab=schedule')
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
+  const initialTab: TabKey = tab === 'schedule' ? 'schedule' : 'topics';
+
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  // Chỉ mount Lịch chiếu khi bấm vào lần đầu, sau đó giữ nguyên để không mất ngày đã chọn
+  const [scheduleMounted, setScheduleMounted] = useState(initialTab === 'schedule');
+
+  const switchTab = (key: TabKey) => {
+    setActiveTab(key);
+    if (key === 'schedule') setScheduleMounted(true);
+  };
+
+  return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.7}
+        >
           <ChevronLeft size={24} color={Colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Tất cả chủ đề</Text>
+        <Text style={styles.headerTitle}>Khám phá</Text>
         <View style={{ width: 24 }} />
       </View>
 
-      <FlatList
-        data={TOPICS}
-        keyExtractor={(item) => item.slug}
-        renderItem={renderItem}
-        numColumns={2}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-      />
+      {/* Thanh chuyển mục */}
+      <View style={styles.tabBar}>
+        {TABS.map((t) => {
+          const active = t.key === activeTab;
+          return (
+            <TouchableOpacity
+              key={t.key}
+              style={[styles.tabItem, active && styles.tabItemActive]}
+              onPress={() => switchTab(t.key)}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.tabText, active && styles.tabTextActive]}>{t.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <View style={styles.flex}>
+        <View style={[styles.flex, activeTab !== 'topics' && styles.hidden]}>
+          <TopicsTab />
+        </View>
+        {scheduleMounted && (
+          <View style={[styles.flex, activeTab !== 'schedule' && styles.hidden]}>
+            <ScheduleTab />
+          </View>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Styles                                                             */
+/* ------------------------------------------------------------------ */
+
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  hidden: {
+    display: 'none',
+  },
   container: {
     flex: 1,
     backgroundColor: Colors.background,
   },
+
+  /* header + tab bar */
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -109,7 +373,35 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
   },
-  list: {
+  tabBar: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 12,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabItemActive: {
+    borderBottomColor: Colors.primary,
+  },
+  tabText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: Colors.primary,
+    fontWeight: '800',
+  },
+
+  /* chủ đề */
+  topicList: {
     paddingHorizontal: H_PAD,
     paddingBottom: 24,
     gap: GAP,
@@ -149,5 +441,101 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 19,
     zIndex: 1,
+  },
+
+  /* lịch chiếu */
+  dateBarWrapper: {
+    height: 56,
+  },
+  dateBarContent: {
+    paddingHorizontal: 8,
+  },
+  dateBarBorder: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  dateItem: {
+    width: 68,
+    height: 55,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  dateItemActive: {
+    borderBottomColor: Colors.primary,
+  },
+  dateNum: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 3,
+  },
+  dateNumActive: {
+    color: Colors.primary,
+    fontWeight: '800',
+  },
+  dateName: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+  },
+  dateNameActive: {
+    color: Colors.primary,
+    fontWeight: '700',
+  },
+  scheduleList: {
+    paddingTop: 4,
+    paddingBottom: 20,
+  },
+  movieCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  movieThumb: {
+    width: 130,
+    height: 85,
+    borderRadius: 8,
+    backgroundColor: Colors.cardBackground,
+  },
+  movieInfo: {
+    flex: 1,
+    gap: 8,
+  },
+  movieName: {
+    color: Colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  movieOrigin: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    marginTop: -4,
+  },
+  movieEpisode: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  emptyIcon: {
+    marginBottom: 4,
+  },
+  emptyText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 22,
   },
 });

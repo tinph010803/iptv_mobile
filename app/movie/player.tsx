@@ -6,7 +6,8 @@ import { saveWatchProgress } from '@/lib/watchHistory';
 import { useAuth } from '@/context/AuthContext';
 import * as NavigationBar from 'expo-navigation-bar';
 import { takePlayerServers } from '@/lib/playerSession';
-
+import { searchTMDB } from '@/lib/tmdb';
+import { getTMDBEpisodeMeta } from '@/lib/tmdbEpisodes';
 type _SrvEp = { name: string; link_embed: string; link_m3u8: string };
 type _SrvItem = { name: string; episodes: _SrvEp[] };
 // Thêm hàm này TRƯỚC buildPlayerHtml
@@ -95,7 +96,7 @@ function isEmbedUrl(url: string): boolean {
       !url.includes('fbcdn') && !url.includes('cdninstagram') &&
       url.startsWith('http'));
 }
-function buildPlayerHtml(m3u8Url: string, title: string, episode: string, initialTime = 0, serversData: _SrvItem[] = [], initSrvIdx = 0, subApiUrl = ''): string {
+function buildPlayerHtml(m3u8Url: string, title: string, episode: string, initialTime = 0, serversData: _SrvItem[] = [], initSrvIdx = 0, subApiUrl = '', posterUrl = ''): string {
   const safeUrl = JSON.stringify(m3u8Url);
   const safeTitle = JSON.stringify(title);
   const safeEpisode = JSON.stringify(episode);
@@ -209,6 +210,25 @@ background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 22%,transpar
 .ep-btn{background:rgba(255,255,255,.1);border:none;color:rgba(255,255,255,.8);font-size:11px;padding:8px 4px;border-radius:6px;cursor:pointer;width:calc(33.33% - 4px);flex:0 0 calc(33.33% - 4px);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ep-btn:active{background:rgba(255,255,255,.2)}
 .ep-btn.epa{background:#e50914;color:#fff;font-weight:700}
+/* Danh sách phát dạng card */
+#epov{position:absolute;inset:0;z-index:150;background:rgba(0,0,0,.88);display:none;flex-direction:column;justify-content:flex-end;padding:0 0 28px 32px}
+#epov.open{display:flex}
+#epov-x{position:absolute;top:12px;right:18px;background:none;border:none;color:#fff;width:44px;height:44px;font-size:26px;cursor:pointer;z-index:2}
+#epov-h{font-size:16px;font-weight:700;color:#fff;margin:0 0 12px}
+#epov-list{display:flex;gap:10px;overflow-x:auto;overflow-y:hidden;padding:0 32px 12px 0;position:relative;-webkit-overflow-scrolling:touch}
+.ec{flex:0 0 auto;width:22vw;min-width:140px;max-width:200px;cursor:pointer}
+.ec:active{opacity:.75}
+.ec-th{position:relative;width:100%;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:#1a1a1a}
+.ec-th img{width:100%;height:100%;object-fit:cover;display:block}
+.ec.on .ec-th{outline:2px solid #ff7a3d;outline-offset:-2px}
+.ec-rt{position:absolute;left:5px;bottom:5px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;padding:1px 6px;border-radius:4px}
+.ec-t{color:#fff;font-size:12.5px;font-weight:700;margin-top:7px}
+.ec-n{color:rgba(255,255,255,.9);font-size:12px;font-weight:600;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ec-d{color:rgba(255,255,255,.55);font-size:11px;line-height:15px;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.eq{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:3px;height:28px}
+.eq i{display:block;width:3px;height:100%;background:#ff7a3d;border-radius:2px;animation:eqa .9s ease-in-out infinite}
+.eq i:nth-child(2){animation-delay:.2s}.eq i:nth-child(3){animation-delay:.4s}.eq i:nth-child(4){animation-delay:.1s}
+@keyframes eqa{0%,100%{transform:scaleY(.25)}50%{transform:scaleY(1)}}
 </style>
 </head>
 <body>
@@ -326,6 +346,11 @@ background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 22%,transpar
       <div class="rp-ep-grid" id="rp-ep-grid"></div>
     </div>
   </div>
+    <div id="epov">
+    <button id="epov-x">&#x2715;</button>
+    <div id="epov-h">Danh sách phát</div>
+    <div id="epov-list"></div>
+  </div>
   <div id="smenu">
     <div id="sm-main"></div>
     <div id="sm-sub" style="display:none"></div>
@@ -362,7 +387,7 @@ var v=document.getElementById('v'),
 document.getElementById('top-title').textContent=EP?TT+' | '+(EP.trim()!==''&&!isNaN(Number(EP.trim()))?'T\u1eadp '+EP:EP):TT;
 
 var hls=null,dur=0,quals=[],curQ=-1,curSpd=1,hideTimer=null,ctrlOn=false,locked=false,skipExpired=false,resumeAt=INIT_TIME||0;
-var AD_START=14*60+55,AD_READY=15*60,AD_SKIP=15*60+31;
+var AD_START=14*60+55,AD_READY=15*60,AD_SKIP=15*60+33;
 var SPDS=[0.25,0.5,0.75,1,1.25,1.5,2];
 var RATIOS=['contain','cover','fill'];
 var RATIO_LABELS=['T\u1ef7 l\u1ec7','\u0110\u1ea7y m\u00e0n h\u00ecnh','K\u00e9o gi\u00e3n'];
@@ -626,8 +651,7 @@ document.getElementById('btn-eplist').addEventListener('click',function(e){
     if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'eplist'}));
     showCtrl();return;
   }
-  buildEpPanel();
-  rpanel.classList.add('open');
+  openEpList();
   showCtrl(true);
 });
 
@@ -772,6 +796,51 @@ function switchEp(url,epName,srvIdx,resume){
 }
 
 // Settings
+// ===== Danh sách phát dạng card =====
+var epov=document.getElementById('epov'),epovList=document.getElementById('epov-list'),
+  EPMETA={},POSTER=${JSON.stringify(posterUrl)};
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function epNum(n){var m=String(n||'').match(/[0-9]+/);return m?parseInt(m[0],10):0;}
+function fmtRt(m){
+  m=Math.round(m);if(!m)return'';
+  var h=Math.floor(m/60),r=m%60;
+  if(h>0)return r>0?h+' giờ '+r+' phút':h+' giờ';
+  return m+' phút';
+}
+window.__setEpMeta=function(o){EPMETA=o||{};if(epov.classList.contains('open'))buildEpCards(false);};
+function buildEpCards(scrollToCur){
+  var eps=SERVERS[CUR_SRV]?SERVERS[CUR_SRV].episodes:[];
+  var html='';
+  eps.forEach(function(ep,i){
+    var meta=EPMETA[epNum(ep.name)]||null;
+    var img=(meta&&meta.still)?meta.still:POSTER;
+    var on=ep.name===CUR_EP;
+    var rt=meta&&meta.runtime?fmtRt(meta.runtime):'';
+    html+='<div class="ec'+(on?' on':'')+'" data-i="'+i+'">'
+      +'<div class="ec-th">'+(img?'<img src="'+esc(img)+'"/>':'')
+      +(on?'<div class="eq"><i></i><i></i><i></i><i></i></div>':'')
+      +(rt?'<span class="ec-rt">'+rt+'</span>':'')
+      +'</div><div class="ec-t">'+esc(epLabel(ep.name))+'</div>'
+      +(meta&&meta.name?'<div class="ec-n">'+esc(meta.name)+'</div>':'')
+      +(meta&&meta.overview?'<div class="ec-d">'+esc(meta.overview)+'</div>':'')
+      +'</div>';
+  });
+  epovList.innerHTML=html;
+  epovList.querySelectorAll('.ec').forEach(function(el){
+    el.addEventListener('click',function(){
+      var ep=eps[parseInt(el.getAttribute('data-i'),10)];
+      if(!ep)return;
+      closeEpList();
+      if(ep.name!==CUR_EP)switchEp(ep.link_m3u8||ep.link_embed,ep.name,CUR_SRV);
+    });
+  });
+  if(scrollToCur){var cur=epovList.querySelector('.ec.on');if(cur)epovList.scrollLeft=cur.offsetLeft;}
+}
+function openEpList(){epov.classList.add('open');buildEpCards(true);}
+function closeEpList(){epov.classList.remove('open');}
+epov.addEventListener('click',function(e){e.stopPropagation();if(e.target===epov||e.target===epovList)closeEpList();});
+document.getElementById('epov-x').addEventListener('click',function(e){e.stopPropagation();closeEpList();});
+
 var SUBS=[];
 var SUB_API=${JSON.stringify(subApiUrl)};
 if(SUB_API){
@@ -979,7 +1048,7 @@ export default function PlayerScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const userId = user?.id;
-  const { url, title, episode, movieId, movieSlug, serverLabel, poster, initialTime, servers, serversKey, subApiUrl } =
+  const { url, title, episode, movieId, movieSlug, serverLabel, poster, initialTime, servers, serversKey, subApiUrl, tmdbId, tmdbType, titleEn, year, backdrop } =
     useLocalSearchParams<{
       url: string;
       title: string;
@@ -992,6 +1061,11 @@ export default function PlayerScreen() {
       servers?: string;
       serversKey?: string;
       subApiUrl?: string;
+      tmdbId?: string;
+      tmdbType?: string;
+      titleEn?: string;
+      year?: string;
+      backdrop?: string;
     }>();
   const webViewRef = useRef<any>(null);
   const [loaded, setLoaded] = useState(false);
@@ -1045,10 +1119,40 @@ export default function PlayerScreen() {
     : buildPlayerHtml(
       safeUrl, safeTitle, safeEpisode, safeInitialTime,
       safeServersData, safeSrvIdx >= 0 ? safeSrvIdx : 0,
-      safeSubApiUrl
+      safeSubApiUrl,
+      backdrop || safePoster
     );
   const currentEpisodeRef = useRef(safeEpisode);
   const currentServerRef = useRef(safeServerLabel);
+
+  const epMetaRef = useRef<any>(null);
+  const injectEpMeta = useCallback(() => {
+    if (!epMetaRef.current) return;
+    webViewRef.current?.injectJavaScript(
+      `window.__setEpMeta && window.__setEpMeta(${JSON.stringify(epMetaRef.current)}); true;`
+    );
+  }, []);
+
+  useEffect(() => {
+    if (isEmbed) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        let id = Number(tmdbId) || 0;
+        let type = tmdbType || 'movie';
+        if (!id) {
+          const found = await searchTMDB(titleEn || safeTitle, Number(year) || undefined);
+          if (found) { id = found.id; type = found.type; }
+        }
+        if (!id || type !== 'tv') return;
+        const meta = await getTMDBEpisodeMeta(id, 1);
+        if (cancelled) return;
+        epMetaRef.current = meta;
+        injectEpMeta();
+      } catch { /* không có dữ liệu thì giữ ảnh phim, không mô tả */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     // Embed providers (NC/HT) do not expose playback time. Save a history entry once.
@@ -1110,7 +1214,7 @@ export default function PlayerScreen() {
   );
 
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]}> 
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]}>
       <StatusBar hidden />
       <WebView
         ref={webViewRef}
@@ -1126,7 +1230,7 @@ export default function PlayerScreen() {
         originWhitelist={['*']}
         onMessage={handleMessage}
         startInLoadingState={false}
-        onLoadEnd={() => setLoaded(true)}
+        onLoadEnd={() => { setLoaded(true); injectEpMeta(); }}
         userAgent={
           Platform.OS === 'android'
             ? 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36'

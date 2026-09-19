@@ -97,6 +97,16 @@ function normalizeEpisodeName(value?: string): string {
   return String(value ?? 'Tập 1').replace(/^tập\s*/i, '').trim().toLowerCase() || '1';
 }
 
+function getTmdbParams(m?: Movie | null) {
+  return {
+    tmdbId: m?.tmdb_id ? String(m.tmdb_id) : '',
+    tmdbType: m?.tmdb_type ?? '',
+    titleEn: m?.title_en ?? '',
+    year: m?.year ? String(m.year) : '',
+    backdrop: m?.poster_url ?? '',
+  };
+}
+
 type ServerMachine = {
   key: string;
   label: string;
@@ -123,7 +133,7 @@ export default function MovieDetailScreen() {
   const [favoriteLoading, setFavoriteLoading] = useState(false);
   const gtavnMovieIdRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(!cachedMovie);
-  const [playerParams, setPlayerParams] = useState<{ url: string; title: string; episode: string; movieId: string; movieSlug: string; serverLabel: string; poster: string; initialTime?: string; serversKey?: string } | null>(null);
+  const [playerParams, setPlayerParams] = useState<{ url: string; title: string; episode: string; movieId: string; movieSlug: string; serverLabel: string; poster: string; initialTime?: string; serversKey?: string; tmdbId?: string; tmdbType?: string; titleEn?: string; year?: string; backdrop?: string } | null>(null);
   const [infoExpanded, setInfoExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('Tập phim');
   const [selectedServerIdx, setSelectedServerIdx] = useState(0);
@@ -259,11 +269,22 @@ export default function MovieDetailScreen() {
         let response = await fetch(`https://phimapi.com/v1/api/the-loai/${firstGenreSlug}?sort_field=modified.time&sort_type=desc&limit=20`);
         let json = await response.json();
         let items: any[] = json?.data?.items ?? [];
+        let cdn: string = json?.data?.APP_DOMAIN_CDN_IMAGE ?? 'https://phimimg.com';
+        let source: 'kk' | 'op' = 'kk';
         if (!Array.isArray(items) || items.length === 0) {
           response = await fetch(`https://ophim1.com/v1/api/the-loai/${firstGenreSlug}?sort_field=modified.time&sort_type=desc&limit=20`);
           json = await response.json();
           items = json?.data?.items ?? [];
+          cdn = json?.data?.APP_DOMAIN_CDN_IMAGE ?? 'https://img.ophim.live';
+          source = 'op';
         }
+        const buildImg = (path?: string): string => {
+          if (!path) return '';
+          if (path.startsWith('http')) return path;
+          const clean = path.replace(/^\/+/, '');
+          if (clean.startsWith('uploads/') || clean.startsWith('upload/')) return `${cdn}/${clean}`;
+          return `${cdn}/uploads/movies/${clean}`;
+        };
         const parseModifiedTime = (value: any): number => {
           const raw = value?.modified?.time ?? value?.modified?.date ?? value?.updated_at;
           if (typeof raw === 'number' && Number.isFinite(raw)) {
@@ -287,9 +308,8 @@ export default function MovieDetailScreen() {
           ...item,
           title: item.name,
           title_en: item.origin_name ?? '',
-          thumb_url: item.thumb_url?.startsWith('http')
-            ? item.thumb_url
-            : `https://img.ophim.live/uploads/movies/${item.thumb_url}`,
+          thumb_url: buildImg(item.thumb_url),
+          poster_url: buildImg(item.poster_url || item.thumb_url),
           is_series: item.episode_total > 1,
           episodes: Number(item.episode_total) || 1,
           current_episode: Number(item.episode_current) || 0,
@@ -516,6 +536,7 @@ export default function MovieDetailScreen() {
       poster: movie.thumb_url ?? '',
       serversKey,
       initialTime: String(Math.floor(Number(resumeTime) || 0)),
+      ...getTmdbParams(movie),
     });
   }, [movie, resumeTime, resumeEpisode, resumeServer]);
 
@@ -640,6 +661,7 @@ export default function MovieDetailScreen() {
       poster: movie?.thumb_url ?? '',
       serversKey,
       ...(startTime && startTime > 0 ? { initialTime: String(Math.floor(startTime)) } : {}),
+      ...getTmdbParams(movie),
     });
   };
 
@@ -1114,7 +1136,7 @@ export default function MovieDetailScreen() {
 
           {activeTab === 'Diễn viên' && (
             <View>
-              <Text style={styles.castSectionTitle}>Diễn viên</Text>
+              {/* <Text style={styles.castSectionTitle}>Diễn viên</Text> */}
               {castLoading ? (
                 <View style={styles.emptyWrap}>
                   <Text style={styles.emptyText}>Đang tải diễn viên...</Text>
