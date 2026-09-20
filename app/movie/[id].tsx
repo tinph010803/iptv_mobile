@@ -46,7 +46,7 @@ import { WebView } from 'react-native-webview';
 import { stashPlayerServers } from '@/lib/playerSession';
 import { getCachedMovieBySlug } from '@/lib/ophim';
 import { formatTime, getWatchHistory, WatchHistoryEntry } from '@/lib/watchHistory';
-
+import { getTMDBSchedule, ScheduleItem } from '@/lib/tmdbSchedule';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const POSTER_WIDTH = SCREEN_WIDTH * 0.44;
@@ -96,7 +96,21 @@ function detectAudioType(serverName: string): 'vietsub' | 'thuyet-minh' | 'defau
 function normalizeEpisodeName(value?: string): string {
   return String(value ?? 'Tập 1').replace(/^tập\s*/i, '').trim().toLowerCase() || '1';
 }
+function normalizeTitle(value?: string): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]/g, '');
+}
 
+function toDateStr(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 function getTmdbParams(m?: Movie | null) {
   return {
     tmdbId: m?.tmdb_id ? String(m.tmdb_id) : '',
@@ -354,8 +368,8 @@ export default function MovieDetailScreen() {
 
   useEffect(() => {
     if (!movie) return;
-    checkUpcomingSchedule(movie.slug || id);
-  }, [movie]);
+    checkUpcomingSchedule(movie);
+  }, [movie?.slug]);
 
   useEffect(() => {
     didInitSourceSelection.current = false;
@@ -540,41 +554,47 @@ export default function MovieDetailScreen() {
     });
   }, [movie, resumeTime, resumeEpisode, resumeServer]);
 
-  const checkUpcomingSchedule = async (slug: string) => {
-    const today = new Date();
-    const dates = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-      return d;
-    });
-    try {
-      const results = await Promise.all(
-        dates.map((d) => {
-          const y = d.getFullYear();
-          const m = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          return fetch(`https://rophimm.info/baseapi/api/v1/showtimes/by-date/${y}-${m}-${day}`)
-            .then((r) => (r.ok ? r.json() : []))
-            .catch(() => []);
-        })
-      );
-      for (let i = 0; i < results.length; i++) {
-        const matches = (results[i] as any[]).filter((item: any) => item.movie?.slug === slug);
-        if (matches.length > 0) {
-          const d = dates[i];
-          const y = d.getFullYear();
-          const mo = String(d.getMonth() + 1).padStart(2, '0');
-          const dy = String(d.getDate()).padStart(2, '0');
-          setUpcomingShowtime({
-            date: `${dy}-${mo}-${y}`,
-            time: matches[0].show_time ?? null,
-            episodes: matches.map((m: any) => m.episode).filter(Boolean),
-          });
-          return;
-        }
+const checkUpcomingSchedule = async (m: Movie) => {
+  const slug = m.slug || id;
+  const wanted = [m.title, m.title_en].map(normalizeTitle).filter(Boolean);
+  const today = new Date();
+  const dates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    return d;
+  });
+
+  try {
+    const results = await Promise.all(
+      dates.map((d) =>
+        getTMDBSchedule(toDateStr(d)).catch(() => [] as ScheduleItem[])
+      )
+    );
+
+    for (let i = 0; i < results.length; i++) {
+      const matches = results[i].filter((item) => {
+        if (item.slug && item.slug === slug) return true;
+        const names = [item.name, item.originalName, ...item.titles]
+          .map(normalizeTitle)
+          .filter(Boolean);
+        return names.some((n) => wanted.includes(n));
+      });
+
+      if (matches.length > 0) {
+        const d = dates[i];
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        setUpcomingShowtime({
+          date: `${dd}-${mm}-${d.getFullYear()}`,
+          time: null, // TMDB schedule không có giờ chiếu
+          episodes: matches.map((x) => x.episode).filter(Boolean),
+        });
+        return;
       }
-    } catch { }
-  };
+    }
+    setUpcomingShowtime(null);
+  } catch { }
+};
 
   const loadMovie = async () => {
     try {
@@ -884,13 +904,13 @@ export default function MovieDetailScreen() {
               style={styles.scheduleBanner}
             >
               <Image
-                source={{ uri: 'https://thiaphim.net/images/alarm.gif' }}
+                source={{ uri: 'https://chophim.fun/icons/alarm.gif' }}
                 style={styles.alarmIcon}
               />
               <Text style={styles.scheduleText}>
-                <Text style={styles.scheduleBold}>{movie.title}</Text>
+                {/* <Text style={styles.scheduleBold}>{movie.title}</Text> */}
                 {(upcomingShowtime.episodes ?? []).length > 0
-                  ? ` — ${(upcomingShowtime.episodes ?? []).join(' & ')}`
+                  ? `${(upcomingShowtime.episodes ?? []).join(' & ')}`
                   : ''}{' sẽ phát sóng'}
                 {upcomingShowtime.time ? ` ${upcomingShowtime.time}` : ''}{' ngày '}
                 <Text style={styles.scheduleBold}>{upcomingShowtime.date}</Text>

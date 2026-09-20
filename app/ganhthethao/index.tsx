@@ -36,6 +36,7 @@ import {
   History,
   MoreHorizontal,
   Play,
+  Radio,
   Search,
   SquarePlay,
   Tv,
@@ -1050,9 +1051,9 @@ export function SportsHeader() {
   }
   const scheduleMenuItems: MenuPopoverItem[] = [
     {
-      key: 'xep-hang',
-      label: 'Xếp hạng',
-      icon: <Building2 size={16} color="#fff" />,
+      key: 'truc-tiep',
+      label: 'Trực tiếp',
+      icon: <Radio size={16} color="#fff" />,
       onPress: () => router.push('/ganhthethao/standings'),
     },
     {
@@ -1065,9 +1066,9 @@ export function SportsHeader() {
 
   const moreMenuItems: MenuPopoverItem[] = [
     {
-      key: 'bang-xep-hang',
-      label: 'Bảng xếp hạng',
-      icon: <Building2 size={20} color="#fff" />,
+      key: 'truc-tiep',
+      label: 'Trực tiếp',
+      icon: <Radio size={20} color="#fff" />,
       onPress: () => router.push('/ganhthethao/standings'),
     },
     {

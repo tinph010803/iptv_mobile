@@ -100,7 +100,6 @@ const BACKGROUNDS = {
 };
 
 const SPORTS_GATE_IMAGE = 'https://img.upanhnhanh.com/9ecfcd2828e9c2b6ba2084d1ebe86e56';
-const GANH3D_LOCKED_USER_KEY = '@ganh3d_locked_user_v1';
 
 // ---- App passcode lock config ----
 const APP_PASSCODE = '1818';
@@ -111,23 +110,20 @@ const APP_UNLOCKED_KEY = '@app_unlocked_v1';
 
 const GANH3D_PROFILES = [
     {
-        id: 'son-tuong',
-        name: 'Sơn Tường Xem Tivi [T]',
-        username: 'teophan370',
-        avatar: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775823230/photo-1-17168606131071257137350-1717299704114-17172997052861912201322_sgflfc.jpg',
+        id: 'hoathinh3d',
+        name: 'HoatHinh3D',
+        logo: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1789881233/logofooter_ujc16s.webp',
     },
     {
-        id: 'dach-5-cu',
-        name: 'Dách 5 Củ [H]',
-        username: 'teophan371',
-        avatar: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775823229/jack--17345360331611347307406_uftcan.webp',
+        id: 'hhpanda',
+        name: 'HHPanda',
+        logo: 'https://hhpanda.st/wp-content/uploads/2024/10/logo.webp',
     },
     {
-        id: 'trinh-ai-cham',
-        name: 'Trình Ai Chấm [N]',
-        username: 'teophan372',
-        avatar: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775823230/HIEUTHUHAI-3-scaled_c1w8x2.jpg',
-    },
+        id: 'YanHH3D',
+        name: 'YanHH3D',
+        logo: 'https://yanhh3d.men/storage/settings/January2026/logo.png',
+    }
 ] as const;
 
 const CINEMA_PROFILES = [
@@ -256,7 +252,6 @@ export default function IntroScreen() {
     const [sportsTermsAccepted, setSportsTermsAccepted] = useState(false);
     const [showCinemaGate, setShowCinemaGate] = useState(false);
     const [showGanh18Gate, setShowGanh18Gate] = useState(false);
-    const [lockedGanh3dUser, setLockedGanh3dUser] = useState<string | null>(null);
 
     // ---- Passcode lock state ----
     // isUnlocked bắt đầu là false. Ta kiểm tra AsyncStorage một lần khi app mount:
@@ -276,7 +271,7 @@ export default function IntroScreen() {
                     setIsUnlocked(true);
                 }
             })
-            .catch(() => {})
+            .catch(() => { })
             .finally(() => {
                 setIsCheckingLock(false);
             });
@@ -295,7 +290,7 @@ export default function IntroScreen() {
                     setIsUnlocked(true);
                     // Lưu lại trạng thái đã mở khóa để những lần mở app sau
                     // không hỏi lại mật khẩu nữa.
-                    AsyncStorage.setItem(APP_UNLOCKED_KEY, '1').catch(() => {});
+                    AsyncStorage.setItem(APP_UNLOCKED_KEY, '1').catch(() => { });
                 }, 120);
             } else {
                 setPinError(true);
@@ -377,23 +372,13 @@ export default function IntroScreen() {
         }
     };
 
-    const handleSelectGanh3dProfile = (username: string) => {
+    const handleSelectGanh3dProfile = (profileId: string) => {
         setShowGanh18Gate(false);
-        setLockedGanh3dUser(username);
-        AsyncStorage.setItem(GANH3D_LOCKED_USER_KEY, username).catch(() => {});
         router.push({
             pathname: '/ganh3d' as any,
-            params: { user: username },
+            params: { user: profileId },
         });
     };
-
-    useEffect(() => {
-        AsyncStorage.getItem(GANH3D_LOCKED_USER_KEY)
-            .then((value) => {
-                if (value) setLockedGanh3dUser(value);
-            })
-            .catch(() => {});
-    }, []);
 
     const handleTabChange = (tab: 'home' | 'terms' | 'license') => {
         setActiveTab(tab);
@@ -738,36 +723,29 @@ export default function IntroScreen() {
                                 <Text style={styles.ganh18GateCloseText}>X</Text>
                             </Pressable>
 
-                            <Text style={styles.ganh18GateTitle}>Ai đang xem?</Text>
-
-                            {lockedGanh3dUser ? (
-                                <Text style={styles.ganh18GateLockedHint}>
-                                    Đang khóa theo: {GANH3D_PROFILES.find((profile) => profile.username === lockedGanh3dUser)?.name ?? lockedGanh3dUser}
-                                </Text>
-                            ) : null}
+                            <Text style={styles.ganh18GateTitle}>Chọn nguồn</Text>
 
                             <View style={styles.ganh3dProfilesRow}>
                                 {GANH3D_PROFILES.map((profile) => (
                                     <Pressable
                                         key={profile.id}
-                                        onPress={() => handleSelectGanh3dProfile(profile.username)}
-                                        disabled={lockedGanh3dUser !== null && lockedGanh3dUser !== profile.username}
+                                        onPress={() => handleSelectGanh3dProfile(profile.id)}
                                         style={({ pressed }) => [
                                             styles.ganh3dProfileItem,
-                                            lockedGanh3dUser !== null && lockedGanh3dUser !== profile.username && styles.ganh3dProfileItemDisabled,
-                                            pressed && lockedGanh3dUser === null && styles.ganh3dProfileItemPressed,
+                                            pressed && styles.ganh3dProfileItemPressed,
                                         ]}
                                     >
-                                        <Image
-                                            source={{ uri: profile.avatar }}
-                                            style={styles.ganh3dProfileAvatar}
-                                            contentFit="cover"
-                                        />
+                                        <View style={styles.ganh3dProfileLogoWrap}>
+                                            <Image
+                                                source={{ uri: profile.logo }}
+                                                style={styles.ganh3dProfileLogo}
+                                                contentFit="contain"
+                                            />
+                                        </View>
                                         <Text style={styles.ganh3dProfileName}>{profile.name}</Text>
                                     </Pressable>
                                 ))}
                             </View>
-
                             <Pressable
                                 onPress={() => setShowGanh18Gate(false)}
                                 style={({ pressed }) => [styles.ganh18GateContinueBtn, pressed && styles.ganh18GateContinueBtnPressed]}
@@ -1377,16 +1355,20 @@ const styles = StyleSheet.create({
     ganh3dProfileItemPressed: {
         opacity: 0.84,
     },
-    ganh3dProfileItemDisabled: {
-        opacity: 0.35,
-    },
-    ganh3dProfileAvatar: {
-        width: 96,
+    ganh3dProfileLogoWrap: {
+        width: '100%',
         height: 96,
-        borderRadius: 10,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: '#333948',
         backgroundColor: '#151922',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 10,
+    },
+    ganh3dProfileLogo: {
+        width: '100%',
+        height: 48,
     },
     ganh3dProfileName: {
         marginTop: 8,
