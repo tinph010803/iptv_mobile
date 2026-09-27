@@ -18,7 +18,8 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://bwgsebmxszsdxxqzsxof.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3Z3NlYm14c3pzZHh4cXpzeG9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyMTQ3MzEsImV4cCI6MjA4ODc5MDczMX0.DGpIOHLSRoGhIEWKitdEN5z3sJepAe9WLRqmVpjH7kU",
-        "EXPO_PUBLIC_API_URL": "https://api.motchillvn.site"
+        "EXPO_PUBLIC_API_URL": "https://api.motchillvn.site",
+        "EXPO_PUBLIC_FOOTBALL_DATA_API_KEY": "496ea8d185e2494cbf554ffc11d27a9e"
       }
     },
     "production": {

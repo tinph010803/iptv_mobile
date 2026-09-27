@@ -5,6 +5,9 @@ const KK_BASE_URL = 'https://phimapi.com';
 const OPHIM_IMAGE_BASE_URL = 'https://img.ophim.live';
 const NGUONC_BASE_URL = 'https://phim.nguonc.com/api';
 const NGUONC_PROXY_BASE_URL = 'https://cdn-nguonc.hailab.cloud/';
+const KK_PROXY_BASE_URL = 'https://xiaofilm.online/api/proxy_m3u8';
+const KK_PROXY_BACKUP_BASE_URL = 'https://cdn.hailab.cloud/';
+
 const HOME_CACHE_TTL = 5 * 60 * 1000;
 const DEFAULT_SORT_FIELD = 'modified.time';
 const DEFAULT_SORT_TYPE = 'desc';
@@ -344,10 +347,10 @@ function withDefaultNewestSort(path: string): string {
 function mapEpisodesList(rawEpisodes: unknown): Array<{ name: string; link_embed: string; link_m3u8: string }> {
   return Array.isArray(rawEpisodes)
     ? rawEpisodes.map((ep: any) => ({
-        name: String(ep.name || ep.slug || 'Tập 1'),
-        link_embed: String(ep.link_embed || ''),
-        link_m3u8: String(ep.link_m3u8 || ''),
-      }))
+      name: String(ep.name || ep.slug || 'Tập 1'),
+      link_embed: String(ep.link_embed || ''),
+      link_m3u8: String(ep.link_m3u8 || ''),
+    }))
     : [];
 }
 
@@ -375,13 +378,21 @@ function toNguoncProxyUrl(embedUrl: unknown): string {
   return `${NGUONC_PROXY_BASE_URL}?eurl=${encodeURIComponent(sourceUrl)}&play=1`;
 }
 
+function toKKProxyUrl(m3u8Url: unknown): string {
+  const sourceUrl = String(m3u8Url || '').trim();
+  if (!sourceUrl || sourceUrl.startsWith(KK_PROXY_BASE_URL) || sourceUrl.startsWith(KK_PROXY_BACKUP_BASE_URL)) {
+    return sourceUrl;
+  }
+
+  return `${KK_PROXY_BASE_URL}?url=${encodeURIComponent(sourceUrl)}&client=swift&mode=video&rev=13`;
+}
 function mapNguoncEpisodesList(rawEpisodes: unknown): Array<{ name: string; link_embed: string; link_m3u8: string }> {
   return Array.isArray(rawEpisodes)
     ? rawEpisodes.map((ep: NguoncEpisodeItem) => ({
-        name: String(ep.name || ep.slug || 'Tập 1'),
-        link_embed: toNguoncProxyUrl(ep.embed),
-        link_m3u8: String(ep.m3u8 || ''),
-      }))
+      name: String(ep.name || ep.slug || 'Tập 1'),
+      link_embed: toNguoncProxyUrl(ep.embed),
+      link_m3u8: String(ep.m3u8 || ''),
+    }))
     : [];
 }
 
@@ -520,170 +531,170 @@ async function resolveNguoncMovieByExactSlug(slug: unknown): Promise<NguoncDetai
 }
 
 async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promise<Movie | null> {
-    const normalizedSlug = normalizeDetailCacheKey(slug);
-    if (!normalizedSlug) return null;
+  const normalizedSlug = normalizeDetailCacheKey(slug);
+  if (!normalizedSlug) return null;
 
-    if (!bypassCache) {
-      const cached = getCachedMovieBySlug(normalizedSlug);
-      if (cached) {
-        return cached;
-      }
+  if (!bypassCache) {
+    const cached = getCachedMovieBySlug(normalizedSlug);
+    if (cached) {
+      return cached;
     }
+  }
 
-    const pending = detailPendingCache.get(normalizedSlug);
-    if (pending) {
-      return pending;
-    }
+  const pending = detailPendingCache.get(normalizedSlug);
+  if (pending) {
+    return pending;
+  }
 
-    const loadingPromise = (async () => {
-      const [item, kkItem] = await Promise.all([
-        fetchOPhimItemBySlugSafe(normalizedSlug),
-        fetchKKItemBySlugSafe(normalizedSlug),
-      ]);
+  const loadingPromise = (async () => {
+    const [item, kkItem] = await Promise.all([
+      fetchOPhimItemBySlugSafe(normalizedSlug),
+      fetchKKItemBySlugSafe(normalizedSlug),
+    ]);
 
-      if (item || kkItem) {
-        const baseMovie = item && kkItem
-          ? mergeMovieDetails(mapKKMovie(kkItem), mapOPhimMovie(item))
-          : kkItem
-            ? mapKKMovie(kkItem)
-            : mapOPhimMovie(item!);
-        cacheDetailMovie(baseMovie);
+    if (item || kkItem) {
+      const baseMovie = item && kkItem
+        ? mergeMovieDetails(mapKKMovie(kkItem), mapOPhimMovie(item))
+        : kkItem
+          ? mapKKMovie(kkItem)
+          : mapOPhimMovie(item!);
+      cacheDetailMovie(baseMovie);
 
-        if (!detailEnrichPendingCache.has(normalizedSlug)) {
-          const enrichPromise = (async () => {
-            if (!kkItem?.slug) return;
+      if (!detailEnrichPendingCache.has(normalizedSlug)) {
+        const enrichPromise = (async () => {
+          if (!kkItem?.slug) return;
 
-            const nc = await withTimeout(
-              resolveNguoncMovieByExactSlug(kkItem.slug),
-              EXTERNAL_SOURCE_TIMEOUT_MS,
-              null as NguoncDetailResponse | null,
-            );
+          const nc = await withTimeout(
+            resolveNguoncMovieByExactSlug(kkItem.slug),
+            EXTERNAL_SOURCE_TIMEOUT_MS,
+            null as NguoncDetailResponse | null,
+          );
 
-            if (!nc?.movie) return;
+          if (!nc?.movie) return;
 
-            const latest = getCachedMovieBySlug(normalizedSlug) ?? baseMovie;
-            let enriched = latest;
+          const latest = getCachedMovieBySlug(normalizedSlug) ?? baseMovie;
+          let enriched = latest;
 
-            if (nc?.movie && shouldMergeBySlugOrOrigin(kkItem.slug, undefined, nc.movie.slug, undefined)) {
-              const ncServers = buildNguoncServers(nc.movie.episodes);
-              if (ncServers.length > 0) {
-                const mergedServers = [...(enriched.servers || []), ...ncServers];
-                const firstEpisodes = mergedServers[0]?.episodes || [];
-                const ncTotal = toNumber(nc.movie.total_episodes, 0);
-                const ncCurrent = toNumber(nc.movie.current_episode, 0);
-                const mergedCurrent = Math.max(ncCurrent, getCurrentEpisodeFromServers(mergedServers));
+          if (nc?.movie && shouldMergeBySlugOrOrigin(kkItem.slug, undefined, nc.movie.slug, undefined)) {
+            const ncServers = buildNguoncServers(nc.movie.episodes);
+            if (ncServers.length > 0) {
+              const mergedServers = [...(enriched.servers || []), ...ncServers];
+              const firstEpisodes = mergedServers[0]?.episodes || [];
+              const ncTotal = toNumber(nc.movie.total_episodes, 0);
+              const ncCurrent = toNumber(nc.movie.current_episode, 0);
+              const mergedCurrent = Math.max(ncCurrent, getCurrentEpisodeFromServers(mergedServers));
 
-                enriched = {
-                  ...enriched,
-                  servers: mergedServers,
-                  episodes_data: firstEpisodes,
-                  stream_url: firstEpisodes[0]?.link_m3u8 || firstEpisodes[0]?.link_embed || enriched.stream_url,
-                  current_episode: Math.max(mergedCurrent, enriched.current_episode, 1),
-                  episodes: Math.max(ncTotal, mergedCurrent, enriched.episodes, enriched.current_episode),
-                };
-              }
+              enriched = {
+                ...enriched,
+                servers: mergedServers,
+                episodes_data: firstEpisodes,
+                stream_url: firstEpisodes[0]?.link_m3u8 || firstEpisodes[0]?.link_embed || enriched.stream_url,
+                current_episode: Math.max(mergedCurrent, enriched.current_episode, 1),
+                episodes: Math.max(ncTotal, mergedCurrent, enriched.episodes, enriched.current_episode),
+              };
             }
+          }
 
-            cacheDetailMovie(enriched);
-          })().finally(() => {
-            detailEnrichPendingCache.delete(normalizedSlug);
-          });
+          cacheDetailMovie(enriched);
+        })().finally(() => {
+          detailEnrichPendingCache.delete(normalizedSlug);
+        });
 
-          detailEnrichPendingCache.set(normalizedSlug, enrichPromise);
-          await enrichPromise;
-        }
-
-        return getCachedMovieBySlug(normalizedSlug) ?? baseMovie;
+        detailEnrichPendingCache.set(normalizedSlug, enrichPromise);
+        await enrichPromise;
       }
 
-      let nc: NguoncDetailResponse | null = null;
+      return getCachedMovieBySlug(normalizedSlug) ?? baseMovie;
+    }
 
-      const initialOrigin = normalizedSlug;
+    let nc: NguoncDetailResponse | null = null;
+
+    const initialOrigin = normalizedSlug;
+    nc = await withTimeout(
+      resolveNguoncMovieForOphim(normalizedSlug, initialOrigin),
+      EXTERNAL_SOURCE_TIMEOUT_MS,
+      null as NguoncDetailResponse | null,
+    );
+
+    let itemFromOrigin: Record<string, unknown> | null = null;
+    let kkItemFromOrigin: Record<string, unknown> | null = null;
+    const originCandidates = [
+      String(nc?.movie?.original_name || nc?.movie?.name || ''),
+    ].filter(Boolean);
+
+    for (const candidate of originCandidates) {
+      kkItemFromOrigin = await resolveKKMovieByOriginName(candidate);
+      if (kkItemFromOrigin) break;
+
+      itemFromOrigin = await resolveOPhimMovieByOriginName(candidate);
+      if (itemFromOrigin) break;
+    }
+
+    if (itemFromOrigin) {
+      const resolvedOrigin = String(itemFromOrigin.origin_name || itemFromOrigin.name || normalizedSlug);
       nc = await withTimeout(
-        resolveNguoncMovieForOphim(normalizedSlug, initialOrigin),
+        resolveNguoncMovieForOphim(normalizedSlug, resolvedOrigin),
+        EXTERNAL_SOURCE_TIMEOUT_MS,
+        nc as NguoncDetailResponse | null,
+      );
+    }
+
+    if (kkItemFromOrigin?.slug) {
+      nc = await withTimeout(
+        resolveNguoncMovieByExactSlug(kkItemFromOrigin.slug),
         EXTERNAL_SOURCE_TIMEOUT_MS,
         null as NguoncDetailResponse | null,
       );
+    }
 
-      let itemFromOrigin: Record<string, unknown> | null = null;
-      let kkItemFromOrigin: Record<string, unknown> | null = null;
-      const originCandidates = [
-        String(nc?.movie?.original_name || nc?.movie?.name || ''),
-      ].filter(Boolean);
+    if (!itemFromOrigin && !kkItemFromOrigin && !nc?.movie) {
+      return null;
+    }
 
-      for (const candidate of originCandidates) {
-        kkItemFromOrigin = await resolveKKMovieByOriginName(candidate);
-        if (kkItemFromOrigin) break;
+    let movie: Movie;
+    let baseSlug: unknown;
 
-        itemFromOrigin = await resolveOPhimMovieByOriginName(candidate);
-        if (itemFromOrigin) break;
-      }
+    if (kkItemFromOrigin) {
+      movie = mapKKMovie(kkItemFromOrigin);
+      baseSlug = kkItemFromOrigin.slug;
+    } else if (itemFromOrigin) {
+      movie = mapOPhimMovie(itemFromOrigin);
+      baseSlug = itemFromOrigin.slug;
+    } else {
+      movie = mapNguoncMovie(nc!.movie!, normalizedSlug);
+      baseSlug = nc!.movie!.slug || normalizedSlug;
+    }
 
-      if (itemFromOrigin) {
-        const resolvedOrigin = String(itemFromOrigin.origin_name || itemFromOrigin.name || normalizedSlug);
-        nc = await withTimeout(
-          resolveNguoncMovieForOphim(normalizedSlug, resolvedOrigin),
-          EXTERNAL_SOURCE_TIMEOUT_MS,
-          nc as NguoncDetailResponse | null,
-        );
-      }
+    if (nc?.movie) {
+      if (kkItemFromOrigin && shouldMergeBySlugOrOrigin(baseSlug, undefined, nc.movie.slug, undefined)) {
+        const ncServers = buildNguoncServers(nc.movie.episodes);
+        if (ncServers.length > 0) {
+          const mergedServers = [...(movie.servers || []), ...ncServers];
+          const firstEpisodes = mergedServers[0]?.episodes || [];
+          const ncTotal = toNumber(nc.movie.total_episodes, 0);
+          const ncCurrent = toNumber(nc.movie.current_episode, 0);
+          const mergedCurrent = Math.max(ncCurrent, getCurrentEpisodeFromServers(mergedServers));
 
-      if (kkItemFromOrigin?.slug) {
-        nc = await withTimeout(
-          resolveNguoncMovieByExactSlug(kkItemFromOrigin.slug),
-          EXTERNAL_SOURCE_TIMEOUT_MS,
-          null as NguoncDetailResponse | null,
-        );
-      }
-
-      if (!itemFromOrigin && !kkItemFromOrigin && !nc?.movie) {
-        return null;
-      }
-
-      let movie: Movie;
-      let baseSlug: unknown;
-
-      if (kkItemFromOrigin) {
-        movie = mapKKMovie(kkItemFromOrigin);
-        baseSlug = kkItemFromOrigin.slug;
-      } else if (itemFromOrigin) {
-        movie = mapOPhimMovie(itemFromOrigin);
-        baseSlug = itemFromOrigin.slug;
-      } else {
-        movie = mapNguoncMovie(nc!.movie!, normalizedSlug);
-        baseSlug = nc!.movie!.slug || normalizedSlug;
-      }
-
-      if (nc?.movie) {
-        if (kkItemFromOrigin && shouldMergeBySlugOrOrigin(baseSlug, undefined, nc.movie.slug, undefined)) {
-          const ncServers = buildNguoncServers(nc.movie.episodes);
-          if (ncServers.length > 0) {
-            const mergedServers = [...(movie.servers || []), ...ncServers];
-            const firstEpisodes = mergedServers[0]?.episodes || [];
-            const ncTotal = toNumber(nc.movie.total_episodes, 0);
-            const ncCurrent = toNumber(nc.movie.current_episode, 0);
-            const mergedCurrent = Math.max(ncCurrent, getCurrentEpisodeFromServers(mergedServers));
-
-            movie.servers = mergedServers;
-            movie.episodes_data = firstEpisodes;
-            movie.stream_url = firstEpisodes[0]?.link_m3u8 || firstEpisodes[0]?.link_embed || movie.stream_url;
-            movie.current_episode = Math.max(mergedCurrent, movie.current_episode, 1);
-            movie.episodes = Math.max(ncTotal, mergedCurrent, movie.episodes, movie.current_episode);
-          }
+          movie.servers = mergedServers;
+          movie.episodes_data = firstEpisodes;
+          movie.stream_url = firstEpisodes[0]?.link_m3u8 || firstEpisodes[0]?.link_embed || movie.stream_url;
+          movie.current_episode = Math.max(mergedCurrent, movie.current_episode, 1);
+          movie.episodes = Math.max(ncTotal, mergedCurrent, movie.episodes, movie.current_episode);
         }
       }
-
-      cacheDetailMovie(movie);
-      return movie;
-    })();
-
-    detailPendingCache.set(normalizedSlug, loadingPromise);
-    try {
-      return await loadingPromise;
-    } finally {
-      detailPendingCache.delete(normalizedSlug);
     }
+
+    cacheDetailMovie(movie);
+    return movie;
+  })();
+
+  detailPendingCache.set(normalizedSlug, loadingPromise);
+  try {
+    return await loadingPromise;
+  } finally {
+    detailPendingCache.delete(normalizedSlug);
   }
+}
 
 export async function getMovieBySlug(slug: string): Promise<Movie | null> {
   const normalizedSlug = normalizeDetailCacheKey(slug);
@@ -839,8 +850,8 @@ function mapOPhimMovie(raw: any, imageBaseUrl = OPHIM_IMAGE_BASE_URL): Movie {
   const actors: string[] = Array.isArray(raw.actor)
     ? raw.actor.filter(Boolean)
     : typeof raw.actor === 'string' && raw.actor
-    ? [raw.actor]
-    : [];
+      ? [raw.actor]
+      : [];
 
   const fallbackNow = new Date().toISOString();
   const updatedAt = toIsoDateString(
@@ -858,7 +869,7 @@ function mapOPhimMovie(raw: any, imageBaseUrl = OPHIM_IMAGE_BASE_URL): Movie {
     title: String(raw.name || raw.title || 'Đang cập nhật'),
     title_en: String(raw.origin_name || raw.title_en || raw.name || ''),
     description: stripHtml(String(raw.content || raw.description || 'Chưa có mô tả cho phim này.')),
-    poster_url : normalizeImageUrl(raw.thumb_url || raw.poster_url, imageBaseUrl),
+    poster_url: normalizeImageUrl(raw.thumb_url || raw.poster_url, imageBaseUrl),
     thumb_url: normalizeImageUrl(raw.poster_url || raw.thumb_url, imageBaseUrl),
     imdb_rating: Number(rating.toFixed(1)),
     year: toNumber(raw.year, new Date().getFullYear()),
@@ -877,22 +888,22 @@ function mapOPhimMovie(raw: any, imageBaseUrl = OPHIM_IMAGE_BASE_URL): Movie {
     // trailer_url: String(raw.trailer_url || ''),
     episodes_data: Array.isArray(raw?.episodes?.[0]?.server_data)
       ? raw.episodes[0].server_data.map((ep: any) => ({
-          name: String(ep.name || ep.slug || 'Tập 1'),
-          link_embed: String(ep.link_embed || ''),
-          link_m3u8: String(ep.link_m3u8 || ''),
-        }))
+        name: String(ep.name || ep.slug || 'Tập 1'),
+        link_embed: String(ep.link_embed || ''),
+        link_m3u8: String(ep.link_m3u8 || ''),
+      }))
       : [],
     servers: Array.isArray(raw?.episodes)
       ? raw.episodes.map((srv: any) => ({
-          name: String(srv.server_name || 'Server 1'),
-          episodes: Array.isArray(srv.server_data)
-            ? srv.server_data.map((ep: any) => ({
-                name: String(ep.name || ep.slug || 'Tập 1'),
-                link_embed: String(ep.link_embed || ''),
-                link_m3u8: String(ep.link_m3u8 || ''),
-              }))
-            : [],
-        }))
+        name: String(srv.server_name || 'Server 1'),
+        episodes: Array.isArray(srv.server_data)
+          ? srv.server_data.map((ep: any) => ({
+            name: String(ep.name || ep.slug || 'Tập 1'),
+            link_embed: String(ep.link_embed || ''),
+            link_m3u8: String(ep.link_m3u8 || ''),
+          }))
+          : [],
+      }))
       : [],
     genres,
     country,
@@ -904,10 +915,10 @@ function mapOPhimMovie(raw: any, imageBaseUrl = OPHIM_IMAGE_BASE_URL): Movie {
     lang_key: Array.isArray(raw.lang_key) ? (raw.lang_key as string[]) : [],
     last_episodes: Array.isArray(raw.last_episodes)
       ? raw.last_episodes.map((ep: any) => ({
-          server_name: String(ep.server_name || ''),
-          name: String(ep.name || ''),
-          is_ai: Boolean(ep.is_ai),
-        }))
+        server_name: String(ep.server_name || ''),
+        name: String(ep.name || ''),
+        is_ai: Boolean(ep.is_ai),
+      }))
       : [],
   };
 }
@@ -1310,11 +1321,28 @@ function mapKKMovie(raw: Record<string, unknown>, imageBaseUrl = OPHIM_IMAGE_BAS
 
   movie.servers = Array.isArray(movie.servers)
     ? movie.servers.map((server, index) => ({
-        ...server,
-        name: normalizeKKServerName(server.name || '', index),
-      }))
+      ...server,
+      name: normalizeKKServerName(server.name || '', index),
+      episodes: Array.isArray(server.episodes)
+        ? server.episodes.map((ep) => ({
+          ...ep,
+          link_m3u8: toKKProxyUrl(ep.link_m3u8),
+        }))
+        : server.episodes,
+    }))
     : movie.servers;
+
+  movie.episodes_data = Array.isArray(movie.episodes_data)
+    ? movie.episodes_data.map((ep) => ({
+      ...ep,
+      link_m3u8: toKKProxyUrl(ep.link_m3u8),
+    }))
+    : movie.episodes_data;
+
+  movie.stream_url =
+    movie.servers?.[0]?.episodes?.[0]?.link_m3u8 ||
+    movie.episodes_data?.[0]?.link_m3u8 ||
+    toKKProxyUrl(movie.stream_url);
 
   return movie;
 }
-
