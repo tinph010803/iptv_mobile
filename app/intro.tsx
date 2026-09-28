@@ -92,11 +92,11 @@ const LOGOS = {
 };
 
 const BACKGROUNDS = {
-    ganhPhim: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&h=500&fit=crop',
+    ganhPhim: 'https://sf-static.onflixcdn.com/images/vi_content_cdn/1783574614_url.jpg',
     ganhTruyen: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775745095/background_ganhgame_bowmpp.jpg',
     thanhGanhManga: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775825068/backgrond_ganhmanga_wi9yd4.png',
     ganhTheThao: 'https://play-lh.googleusercontent.com/T6oxu6MrpMrn0i8YftSZdl7LMG1YOWPZ6T8k7ly4ElJ0oWKGTNSzBcIrEyFmu4Lqk38=w526-h296-rw',
-    ganh3d: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1775825490/background_ganh3d_gcgb3g.jpg',
+    ganh3d: 'https://sf-static.onflixcdn.com/images/vi_content_cdn/1783574598_url.jpg',
 };
 
 const SPORTS_GATE_IMAGE = 'https://img.upanhnhanh.com/9ecfcd2828e9c2b6ba2084d1ebe86e56';

@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 const APP_SETTINGS_TABLE = 'app_settings';
 
 export const SPORTS_DEFAULT_URL = 'https://eascore.io/';
-export const ONFLIX_DEFAULT_URL = 'https://onflixstatus.com/';
+export const ONFLIX_DEFAULT_URL = 'https://ikiwi.my/';
 export const ROPHIM_API_DEFAULT_URL = 'https://cobephim.com/baseapi/api/v1';
 export const RO1_DEFAULT_URL = 'https://cobephim.com';
 export const RO2_DEFAULT_URL = 'https://rophim.stream';

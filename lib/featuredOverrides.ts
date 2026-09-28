@@ -28,6 +28,11 @@ const CACHE_KEY = 'featured_overrides_cache_v2';
 /** Dữ liệu mặc định — hardcode theo sort_order */
 export const FEATURED_OVERRIDES: FeaturedOverride[] = [
   {
+    slug: 'tham-tu-lung-danh-conan-vu-an-tien-gia-ultra-30',
+    titleImg: 'https://xiaofilm.online/assets/logo_phim/tham-tu-lung-danh-conan-vu-an-tien-gia-ultra-30.webp?v=1790411723',
+    trailerUrl: 'https://video.twimg.com/amplify_video/2101201496381501440/vid/avc1/1280x720/V2n3Ludi4Pybtagg.mp4'
+  },
+  {
     slug: 'bon-ban-tay-hai-ban-sonata',
     titleImg: 'https://sf-static.onflixcdn.com/images/pic/1788018511_url.webp',
     trailerUrl: 'https://trailer.onflixcdn.com/trailer/29082026/8752c25b-7fbb-4637-88b5-c0590e3e9799.m3u8'

@@ -192,8 +192,21 @@ export default function HomeScreen() {
   }, []);
 
   // Reload watch history every time screen is focused
+  // Mỗi phim chỉ giữ 1 entry (tập xem gần nhất)
   useFocusEffect(useCallback(() => {
-    getWatchHistory(user?.id).then((items) => setWatchHistory(items.slice(0, 20)));
+    getWatchHistory(user?.id).then((items) => {
+      const latestByMovie = new Map<string, WatchHistoryEntry>();
+      for (const item of items) {
+        const prev = latestByMovie.get(item.movieSlug);
+        if (!prev || new Date(item.updatedAt).getTime() > new Date(prev.updatedAt).getTime()) {
+          latestByMovie.set(item.movieSlug, item);
+        }
+      }
+      const deduped = Array.from(latestByMovie.values()).sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
+      setWatchHistory(deduped.slice(0, 20));
+    });
   }, [user]));
 
   useEffect(() => {
