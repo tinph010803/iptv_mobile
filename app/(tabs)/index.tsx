@@ -24,7 +24,8 @@ import { useAuth } from '@/context/AuthContext';
 import { HTMoviesSection } from '@/components/HTMoviesSection';
 import { runWhenIdle } from '@/utils/runWhenIdle';
 import { Play } from 'lucide-react-native';
-
+import { BilingualSection } from '@/components/BilingualSection';
+import { getBilingualMovies } from '@/lib/bilingualMovies';
 const TOP10_CARD_WIDTH = 110;
 const TOP10_CARD_MARGIN = 10;
 const TOP10_ITEM_SIZE = TOP10_CARD_WIDTH + TOP10_CARD_MARGIN;
@@ -144,6 +145,7 @@ const SECTION_CONFIGS: SectionConfig[] = [
   { key: 'korean', title: 'Phim Hàn Quốc mới', fetchFn: () => getMoviesByCountry('han-quoc'), navSlug: 'han-quoc', navType: 'country' },
   { key: 'chinese', title: 'Phim Trung Quốc mới', fetchFn: () => getMoviesByCountry('trung-quoc'), navSlug: 'trung-quoc', navType: 'country' },
   { key: 'western', title: 'Phim US-UK mới', fetchFn: () => getMoviesByCountry('au-my'), navSlug: 'au-my', navType: 'country' },
+  { key: 'bilingual', title: 'Phim Song Ngữ', fetchFn: () => getBilingualMovies(), navSlug: '', navType: 'list' },
   { key: 'theater', title: 'Phim Điện Ảnh Mới Coóng', fetchFn: () => getMoviesByType('phim-le'), navSlug: 'phim-le', navType: 'list' },
 ];
 
@@ -281,6 +283,7 @@ export default function HomeScreen() {
     ({ item }: { item: SectionConfig }) => {
       const movies = sectionMovies[item.key];
       if (!movies?.length) return null;
+      if (item.key === 'bilingual') return <BilingualSection movies={movies} />;
       return (
         <MovieSection
           title={item.title}
@@ -417,11 +420,11 @@ export default function HomeScreen() {
       />
 
       <View style={[styles.homeTopBar, { top: insets.top + 8 }]}>
-          <Image
-            source={{ uri: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1786077846/upflix-removebg-preview_dsnd1z.png' }}
-            style={styles.brandLogo}
-            resizeMode="contain"
-          />
+        <Image
+          source={{ uri: 'https://res.cloudinary.com/df2amyjzw/image/upload/v1786077846/upflix-removebg-preview_dsnd1z.png' }}
+          style={styles.brandLogo}
+          resizeMode="contain"
+        />
       </View>
 
       <FlatList

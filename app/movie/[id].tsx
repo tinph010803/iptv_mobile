@@ -47,7 +47,7 @@ import { stashPlayerServers } from '@/lib/playerSession';
 import { getCachedMovieBySlug } from '@/lib/ophim';
 import { formatTime, getWatchHistory, WatchHistoryEntry } from '@/lib/watchHistory';
 import { getTMDBSchedule, ScheduleItem } from '@/lib/tmdbSchedule';
-
+import { HT_LOCAL_SOURCES } from '@/lib/htLocalSources';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const POSTER_WIDTH = SCREEN_WIDTH * 0.44;
 const POSTER_HEIGHT = POSTER_WIDTH * 1.5;
@@ -128,6 +128,15 @@ type ServerMachine = {
   provider: 'OP' | 'KK' | 'NC' | 'HT';
   serverIndexes: number[];
 };
+type PlayerEpisode = {
+  name: string;
+  slug?: string;
+  filename?: string;
+  link_embed: string;
+  link_m3u8: string;
+  subs?: { name: string; url: string }[];
+};
+type PlayerServer = { name: string; episodes: PlayerEpisode[] };
 export default function MovieDetailScreen() {
   const router = useRouter();
   const { id, resumeTime, resumeEpisode, resumeServer } = useLocalSearchParams<{
@@ -400,14 +409,24 @@ export default function MovieDetailScreen() {
   // );
 
   // ADD FIM THỎ ƠI
-  const movieServers = useMemo(() => {
-    const base = (movie?.servers?.length ?? 0) > 0
+  const movieServers = useMemo<PlayerServer[]>(() => {
+    const base = ((movie?.servers?.length ?? 0) > 0
       ? movie!.servers!
-      : [{ name: 'Server #1', episodes: movie?.episodes_data ?? [] }];
+      : [{ name: 'Server #1', episodes: movie?.episodes_data ?? [] }]) as PlayerServer[];
 
-    if (htServers.length === 0) return base;
-
-    // Group các episode theo server_name
+    // Nguồn HT tự làm, khớp theo slug
+    const localHt = (HT_LOCAL_SOURCES[movie?.slug ?? ''] ?? []).map((src) => ({
+      name: src.serverName,
+      episodes: src.episodes.map((ep) => ({
+        name: ep.name,
+        slug: toSlug(ep.name),
+        filename: '',
+        link_embed: '',
+        link_m3u8: ep.link_m3u8,
+        subs: ep.subs ?? [],
+      })),
+    })) as PlayerServer[];
+    // HT từ Supabase (giữ nguyên)
     const grouped = new Map<string, any[]>();
     for (const row of htServers) {
       if (!grouped.has(row.server_name)) grouped.set(row.server_name, []);
@@ -419,13 +438,9 @@ export default function MovieDetailScreen() {
         link_m3u8: row.link_m3u8 ?? '',
       });
     }
+    const htServerList = Array.from(grouped.entries()).map(([name, episodes]) => ({ name, episodes }));
 
-    const htServerList = Array.from(grouped.entries()).map(([name, episodes]) => ({
-      name,
-      episodes,
-    }));
-
-    return [...base, ...htServerList];
+    return [...base, ...localHt, ...htServerList];
   }, [movie, htServers]);
 
   // End
@@ -554,47 +569,47 @@ export default function MovieDetailScreen() {
     });
   }, [movie, resumeTime, resumeEpisode, resumeServer]);
 
-const checkUpcomingSchedule = async (m: Movie) => {
-  const slug = m.slug || id;
-  const wanted = [m.title, m.title_en].map(normalizeTitle).filter(Boolean);
-  const today = new Date();
-  const dates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    return d;
-  });
+  const checkUpcomingSchedule = async (m: Movie) => {
+    const slug = m.slug || id;
+    const wanted = [m.title, m.title_en].map(normalizeTitle).filter(Boolean);
+    const today = new Date();
+    const dates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      return d;
+    });
 
-  try {
-    const results = await Promise.all(
-      dates.map((d) =>
-        getTMDBSchedule(toDateStr(d)).catch(() => [] as ScheduleItem[])
-      )
-    );
+    try {
+      const results = await Promise.all(
+        dates.map((d) =>
+          getTMDBSchedule(toDateStr(d)).catch(() => [] as ScheduleItem[])
+        )
+      );
 
-    for (let i = 0; i < results.length; i++) {
-      const matches = results[i].filter((item) => {
-        if (item.slug && item.slug === slug) return true;
-        const names = [item.name, item.originalName, ...item.titles]
-          .map(normalizeTitle)
-          .filter(Boolean);
-        return names.some((n) => wanted.includes(n));
-      });
-
-      if (matches.length > 0) {
-        const d = dates[i];
-        const dd = String(d.getDate()).padStart(2, '0');
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        setUpcomingShowtime({
-          date: `${dd}-${mm}-${d.getFullYear()}`,
-          time: null, // TMDB schedule không có giờ chiếu
-          episodes: matches.map((x) => x.episode).filter(Boolean),
+      for (let i = 0; i < results.length; i++) {
+        const matches = results[i].filter((item) => {
+          if (item.slug && item.slug === slug) return true;
+          const names = [item.name, item.originalName, ...item.titles]
+            .map(normalizeTitle)
+            .filter(Boolean);
+          return names.some((n) => wanted.includes(n));
         });
-        return;
+
+        if (matches.length > 0) {
+          const d = dates[i];
+          const dd = String(d.getDate()).padStart(2, '0');
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          setUpcomingShowtime({
+            date: `${dd}-${mm}-${d.getFullYear()}`,
+            time: null, // TMDB schedule không có giờ chiếu
+            episodes: matches.map((x) => x.episode).filter(Boolean),
+          });
+          return;
+        }
       }
-    }
-    setUpcomingShowtime(null);
-  } catch { }
-};
+      setUpcomingShowtime(null);
+    } catch { }
+  };
 
   const loadMovie = async () => {
     try {
@@ -665,9 +680,7 @@ const checkUpcomingSchedule = async (m: Movie) => {
       }
     }
 
-    const srvData = (movie?.servers?.length ?? 0) > 0
-      ? movie!.servers!
-      : (movie?.episodes_data ? [{ name: srvLabel || 'Vietsub #1', episodes: movie.episodes_data }] : []);
+    const srvData = movieServers;
 
     const serversKey = stashPlayerServers(srvData as any);
 
@@ -748,11 +761,10 @@ const checkUpcomingSchedule = async (m: Movie) => {
   const variantIndexes = providerVariantIndexes.length > 0 ? providerVariantIndexes : (selectedMachine?.serverIndexes ?? [0]);
   const effectiveServerIdx =
     variantIndexes.includes(selectedServerIdx) ? selectedServerIdx : (variantIndexes[0] ?? 0);
-  const currentEps = movieServers[effectiveServerIdx]?.episodes ?? [];
-
+  const currentEps: PlayerEpisode[] = movieServers[effectiveServerIdx]?.episodes ?? [];
   const episodeChunks = useMemo(() => {
-    if (currentEps.length === 0) return [] as { label: string; episodes: any[] }[];
-    const chunks: { label: string; episodes: any[] }[] = [];
+    if (currentEps.length === 0) return [] as { label: string; episodes: PlayerEpisode[] }[];
+    const chunks: { label: string; episodes: PlayerEpisode[] }[] = [];
     for (let start = 0; start < currentEps.length; start += EPISODE_CHUNK_SIZE) {
       const end = Math.min(start + EPISODE_CHUNK_SIZE, currentEps.length);
       chunks.push({
@@ -1006,7 +1018,7 @@ const checkUpcomingSchedule = async (m: Movie) => {
         {/* ── Tab content ── */}
         <View style={styles.tabContent}>
           {/* Ngoại trừ phim THỎ ƠI */}
-          {activeTab === 'Tập phim' && (movie.status !== 'trailer' || movie.slug === 'tho-oi') && (() => {
+          {activeTab === 'Tập phim' && (movie.status !== 'trailer' || movie.slug === 'tho-oi' || !!HT_LOCAL_SOURCES[movie.slug ?? '']) && (() => {
             return (
               <View>
                 {/* Server dropdown */}

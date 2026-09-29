@@ -8,8 +8,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { takePlayerServers } from '@/lib/playerSession';
 import { searchTMDB } from '@/lib/tmdb';
 import { getTMDBEpisodeMeta } from '@/lib/tmdbEpisodes';
-type _SrvEp = { name: string; link_embed: string; link_m3u8: string };
-type _SrvItem = { name: string; episodes: _SrvEp[] };
+type _SrvEp = { name: string; link_embed: string; link_m3u8: string; subs?: { name: string; url: string }[] }; type _SrvItem = { name: string; episodes: _SrvEp[] };
 // Thêm hàm này TRƯỚC buildPlayerHtml
 function buildEmbedHtml(embedUrl: string, title: string, episode: string): string {
   return `<!DOCTYPE html>
@@ -184,7 +183,21 @@ background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 22%,transpar
 .sm-back:active{background:rgba(255,255,255,.07)}
 .sm-opt{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;font-size:14px;color:rgba(255,255,255,.8);cursor:pointer}
 .sm-opt:active{background:rgba(255,255,255,.06)}
-.sm-opt.on{color:#e50914;font-weight:600}
+.sm-chips{display:flex;flex-wrap:wrap;gap:8px;padding:4px 14px 12px}
+.sm-chip{padding:7px 12px;border-radius:8px;background:rgba(255,255,255,.1);color:#fff;font-size:13px;cursor:pointer}
+.sm-chip.on{background:#e50914;font-weight:600}
+.sm-dot{width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,255,255,.3);cursor:pointer}
+.sm-dot.on{border-color:#e50914;box-shadow:0 0 0 2px #e50914}
+.sp-modes{display:flex;align-items:center;gap:8px;padding:10px 14px}
+.sp-pill{padding:6px 14px;border-radius:999px;background:rgba(255,255,255,.1);color:#fff;font-size:13px;cursor:pointer}
+.sp-pill.on{background:#fff;color:#000;font-weight:700}
+.sp-gear{margin-left:auto;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;cursor:pointer}
+.sp-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px 14px;min-width:360px}
+.sp-col{min-width:0}
+.sp-h{font-size:11px;color:rgba(255,255,255,.5);padding:4px 2px 6px}
+.sp-item{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:11px 10px;border-radius:8px;font-size:13px;color:#fff;background:rgba(255,255,255,.06);margin-bottom:6px;cursor:pointer;white-space:nowrap}
+.sp-item.on{color:#ffd54a;font-weight:700}
+.sp-item.dis{opacity:.35;pointer-events:none}
 /* Right panel */
 #rpanel{position:absolute;top:0;right:0;bottom:0;width:38%;min-width:240px;max-width:320px;background:rgba(15,18,35,.97);transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;z-index:100;border-left:1px solid rgba(255,255,255,.08)}
 #rpanel.open{transform:translateX(0)}
@@ -444,6 +457,7 @@ function initHls(){
       v.play().catch(function(){});
     });
     hls.on(Hls.Events.ERROR,function(ev,d){
+      subEl.textContent='HLS: '+d.type+' | '+d.details+' | '+(d.response?d.response.code:'-');
       if(d.fatal){
         if(d.type===Hls.ErrorTypes.NETWORK_ERROR){
           var backup=!triedBackup?getKKBackupUrl(M):null;
@@ -712,6 +726,7 @@ function switchEp(url,epName,srvIdx,resume){
   CUR_EP=epName;
   if(srvIdx!==undefined&&srvIdx!==null)CUR_SRV=srvIdx;
   M=url;
+  applySubsForEp();
   resumeAt=(resume!=null&&resume>5)?resume:0;
   dur=0;
   skipExpired=false;       
@@ -741,6 +756,7 @@ function switchEp(url,epName,srvIdx,resume){
       curQ=-1;buildSmMain();v.play().catch(function(){});
     });
     hls.on(Hls.Events.ERROR,function(ev,d){
+      subEl.textContent='HLS: '+d.type+' | '+d.details+' | '+(d.response?d.response.code:'-');
       if(d.fatal){
         if(d.type===Hls.ErrorTypes.NETWORK_ERROR){
           var backup=!triedBackup?getKKBackupUrl(M):null;
@@ -825,14 +841,105 @@ if(SUB_API){
 }
 var curSubIdx=-1;
 var subCues=[];
-var subFontSize=100; // percent
+var subFontSize=125; // percent
 var subColor='#ffffff';
 var dualAudio=false; // song ngữ bật/tắt
 var subEl=document.createElement('div');
 subEl.id='sub-text';
-subEl.style.cssText='position:absolute;bottom:110px;left:0;right:0;text-align:center;pointer-events:none;z-index:30;padding:0 12px;';
+subEl.style.cssText='position:absolute;bottom:45px;left:0;right:0;text-align:center;pointer-events:none;z-index:30;padding:0 12px;';
 wrap.appendChild(subEl);
-
+subEl.style.color=subColor;
+subEl.style.fontSize=(subFontSize/100*16)+'px';
+subEl.style.textShadow='0 1px 4px #000,0 0 3px #000';
+subEl.style.fontWeight='600';
+var NL=String.fromCharCode(10),CR=String.fromCharCode(13),lastSub='';
+function tsToSec(s){
+  var p=s.trim().split(',').join('.').split(':').map(parseFloat);
+  return p.length===3?p[0]*3600+p[1]*60+p[2]:p[0]*60+p[1];
+}
+function parseVtt(txt){
+  var lines=txt.split(CR).join('').split(NL),out=[],i=0;
+  while(i<lines.length){
+    if(lines[i].indexOf('-->')>-1){
+      var m=lines[i].split('-->'),buf=[];i++;
+      while(i<lines.length&&lines[i].trim()!==''){buf.push(lines[i]);i++;}
+      var text=buf.join(NL).replace(/<[^>]+>/g,'').trim();
+      if(text)out.push({s:tsToSec(m[0]),e:tsToSec(m[1].trim().split(' ')[0]),t:text});
+    }else i++;
+  }
+  return out;
+}
+function loadSub(idx){
+  curSubIdx=idx;subCues=[];lastSub='';subEl.innerHTML='';
+  if(idx<0||!SUBS[idx])return;
+  fetch(SUBS[idx].url).then(function(r){return r.text();}).then(function(t){
+    if(curSubIdx===idx)subCues=parseVtt(t);
+  }).catch(function(){});
+}
+function curEpSubs(){
+  var eps=SERVERS[CUR_SRV]?SERVERS[CUR_SRV].episodes:[];
+  var ep=eps.find(function(e){return e.name===CUR_EP;})||eps.find(function(e){return (e.link_m3u8||e.link_embed)===M;});
+  return ep&&ep.subs?ep.subs:[];
+}
+function applySubsForEp(){
+  var s=curEpSubs();
+  if(!s.length)return;
+  SUBS=s.map(function(x){return{name:x.name,url:x.url};});
+  if(subUserOff){curSubIdx=-1;subCues=[];subCues2=[];lastSub='';subEl.innerHTML='';}
+  else if(dualAudio)applyDual();
+  else loadSub(0);
+  buildSmMain();
+}
+var subCues2=[];
+function cueAt(arr,t){
+  for(var i=0;i<arr.length;i++){if(t>=arr[i].s&&t<=arr[i].e)return arr[i].t;}
+  return '';
+}
+function findSubIdx(re){
+  for(var i=0;i<SUBS.length;i++){if(re.test(SUBS[i].name))return i;}
+  return -1;
+}
+var sub2Idx=-1,subUserOff=false;
+function loadSub2(idx){
+  sub2Idx=idx;subCues2=[];lastSub='';
+  if(idx<0||!SUBS[idx])return;
+  fetch(SUBS[idx].url).then(function(r){return r.text();}).then(function(t){
+    if(sub2Idx===idx&&dualAudio)subCues2=parseVtt(t);
+  }).catch(function(){});
+}
+function applyDual(){
+  subCues2=[];lastSub='';subEl.innerHTML='';
+  if(SUBS.length<2){dualAudio=false;return;}
+  var vi=findSubIdx(/vietnam|việt/i),en=findSubIdx(/english|anh/i);
+  var a=(curSubIdx>=0&&curSubIdx<SUBS.length)?curSubIdx:(vi>=0?vi:0);
+  var b=(sub2Idx>=0&&sub2Idx<SUBS.length&&sub2Idx!==a)?sub2Idx:((en>=0&&en!==a)?en:(a===0?1:0));
+  loadSub(a);loadSub2(b);
+}
+function setSubMode(m){
+  if(m==='off'){
+    subUserOff=true;dualAudio=false;curSubIdx=-1;
+    subCues=[];subCues2=[];lastSub='';subEl.innerHTML='';return;
+  }
+  subUserOff=false;
+  if(m==='dual'){
+    if(SUBS.length<2)return;
+    dualAudio=true;applyDual();return;
+  }
+  dualAudio=false;subCues2=[];lastSub='';
+  if(curSubIdx<0)loadSub(0);
+}
+v.addEventListener('timeupdate',function(){
+  if(!subCues.length&&!subCues2.length){return;}
+  var t=v.currentTime;
+  var txt=cueAt(subCues,t),txt2=dualAudio?cueAt(subCues2,t):'';
+  var key=txt+'|'+txt2;
+  if(key!==lastSub){
+    lastSub=key;
+    var h=txt?esc(txt).split(NL).join('<br>'):'';
+    if(txt2)h+='<div style="font-size:.85em;color:#ffd54a;margin-top:2px">'+esc(txt2).split(NL).join('<br>')+'</div>';
+    subEl.innerHTML=h;
+  }
+});
 function buildSmMain(){
   var html='<div class="sm-head">C\u00e0i \u0111\u1eb7t</div>';
    // Chất lượng
@@ -843,11 +950,10 @@ html += '<div class="sm-row" id="sm-row-ql"><span style="display:flex;align-item
   // Tốc độ phát
   html+='<div class="sm-row" id="sm-row-spd"><span style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z"/></svg>T\u1ed1c \u0111\u1ed9 ph\u00e1t</span><span class="sm-val"><span id="sm-spd-lbl">B\u00ecnh th\u01b0\u1eddng</span>'+chevR+'</span></div>';
   // Phụ đề
-  var subName=curSubIdx===-1?'T\u1eaft':(SUBS[curSubIdx]?SUBS[curSubIdx].name:'T\u1eaft');
+  var subName=curSubIdx===-1?'T\u1eaft':(dualAudio?'Song ng\u1eef':(SUBS[curSubIdx]?SUBS[curSubIdx].name:'T\u1eaft'));
   html+='<div class="sm-row" id="sm-row-sub"><span style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 11H4v-2h8v2zm8 0h-6v-2h6v2zm0-4H4V9h16v2z"/></svg>Ph\u1ee5 \u0111\u1ec1</span><span class="sm-val"><span id="sm-sub-lbl">'+subName+'</span>'+chevR+'</span></div>';
   // Song ngữ
   var dualLabel=dualAudio?'B\u1eadt':'T\u1eaft';
-  html+='<div class="sm-row" id="sm-row-dual"><span style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>Song ng\u1eef</span><span class="sm-val"><span id="sm-dual-lbl">'+dualLabel+'</span>'+chevR+'</span></div>';
  
 // Cỡ chữ & Màu sắc
   html+='<div class="sm-row" id="sm-row-font"><span style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M9 4v3h5v12h3V7h5V4H9zm-6 8h3v7h3v-7h3V9H3v3z"/></svg>C\u1ee1 ch\u1eef &amp; M\u00e0u s\u1eafc</span><span class="sm-val"><span id="sm-font-lbl">'+subFontSize+'%</span>'+chevR+'</span></div>';
@@ -862,28 +968,53 @@ html += '<div class="sm-row" id="sm-row-ql"><span style="display:flex;align-item
 
   document.getElementById('sm-row-spd').onclick=buildSpdPage;
   document.getElementById('sm-row-sub').onclick=buildSubPage;
-  document.getElementById('sm-row-dual').onclick=buildDualPage;
   var rowQl=document.getElementById('sm-row-ql');if(rowQl)rowQl.onclick=buildQlPage;
   document.getElementById('sm-row-font').onclick=buildFontPage;
 }
 
 function buildSubPage(){
-  var html='<div class="sm-back" id="sm-back">'+backIco+' Ph\u1ee5 \u0111\u1ec1</div>';
-  html+='<div class="sm-opt'+(curSubIdx===-1?' on':'')+'" data-si="-1">T\u1eaft'+(curSubIdx===-1?chk:'')+'</div>';
+  var mode=curSubIdx<0?'off':(dualAudio?'dual':'on');
+  var html='<div class="sm-back" id="sm-back">'+backIco+' Phụ đề</div>';
+  html+='<div class="sp-modes">'
+    +'<div class="sp-pill'+(mode==='on'?' on':'')+'" data-m="on">Bật</div>'
+    +'<div class="sp-pill'+(mode==='dual'?' on':'')+'" data-m="dual">Song ngữ</div>'
+    +'<div class="sp-pill'+(mode==='off'?' on':'')+'" data-m="off">Tắt</div>'
+    +'<div class="sp-gear" id="sp-gear">&#9881;</div></div>';
   if(SUBS.length===0){
-    html+='<div style="padding:14px;color:rgba(255,255,255,.4);font-size:13px">Kh\u00f4ng c\u00f3 ph\u1ee5 \u0111\u1ec1</div>';
+    html+='<div style="padding:14px;color:rgba(255,255,255,.4);font-size:13px">Không có phụ đề</div>';
   }else{
+    var dis1=mode==='off',dis2=mode!=='dual';
+    html+='<div class="sp-cols"><div class="sp-col"><div class="sp-h">Phụ đề 1</div>';
     SUBS.forEach(function(s,i){
-      var on=i===curSubIdx?' on':'';
-      html+='<div class="sm-opt'+on+'" data-si="'+i+'">'+s.name+(i===curSubIdx?chk:'')+'</div>';
+      var on=i===curSubIdx;
+      html+='<div class="sp-item'+(on?' on':'')+(dis1?' dis':'')+'" data-c="1" data-i="'+i+'">'+s.name+(on?chk:'')+'</div>';
     });
+    html+='</div><div class="sp-col"><div class="sp-h">Phụ đề 2 (Song ngữ)</div>';
+    SUBS.forEach(function(s,i){
+      var on=mode==='dual'&&i===sub2Idx;
+      var d=dis2||i===curSubIdx;
+      html+='<div class="sp-item'+(on?' on':'')+(d?' dis':'')+'" data-c="2" data-i="'+i+'">'+s.name+(on?chk:'')+'</div>';
+    });
+    html+='</div></div>';
   }
   smMain.style.display='none';smSub.innerHTML=html;smSub.style.display='block';
+  function refresh(){v.dispatchEvent(new Event('timeupdate'));buildSubPage();}
   document.getElementById('sm-back').onclick=function(){buildSmMain();};
-  smSub.querySelectorAll('.sm-opt[data-si]').forEach(function(el){
+  document.getElementById('sp-gear').onclick=function(){buildFontPage();};
+  smSub.querySelectorAll('.sp-pill').forEach(function(el){
+    el.onclick=function(){setSubMode(el.getAttribute('data-m'));refresh();};
+  });
+  smSub.querySelectorAll('.sp-item').forEach(function(el){
     el.onclick=function(){
-      curSubIdx=parseInt(el.getAttribute('data-si'));
-      buildSmMain();
+      var i=parseInt(el.getAttribute('data-i'));
+      if(el.getAttribute('data-c')==='1'){
+        subUserOff=false;
+        if(dualAudio&&i===sub2Idx){var old=curSubIdx;loadSub(i);loadSub2(old);}
+        else loadSub(i);
+      }else{
+        loadSub2(i);
+      }
+      refresh();
     };
   });
 }
@@ -896,7 +1027,9 @@ function buildDualPage(){
   document.getElementById('sm-back').onclick=function(){buildSmMain();};
   smSub.querySelectorAll('.sm-opt[data-da]').forEach(function(el){
     el.onclick=function(){
-      dualAudio=el.getAttribute('data-da')==='1';
+         dualAudio=el.getAttribute('data-da')==='1';
+      if(dualAudio)applyDual();
+      else{subCues2=[];lastSub='';subEl.innerHTML='';}
       buildSmMain();
     };
   });
@@ -905,22 +1038,22 @@ function buildDualPage(){
 function buildFontPage(){
   var SIZES=[75,100,125,150,200];
   var COLORS=[
-    {label:'Tr\u1eafng',val:'#ffffff'},
-    {label:'V\u00e0ng',val:'#ffff00'},
-    {label:'\u0110\u1ecf',val:'#ff4444'},
-    {label:'Xanh l\u00e1',val:'#44ff44'},
+    {label:'Trắng',val:'#ffffff'},
+    {label:'Vàng',val:'#ffff00'},
+    {label:'Đỏ',val:'#ff4444'},
+    {label:'Xanh lá',val:'#44ff44'},
+    {label:'Xanh dương',val:'#4db8ff'},
   ];
-  var html='<div class="sm-back" id="sm-back">'+backIco+' C\u1ee1 ch\u1eef &amp; M\u00e0u s\u1eafc</div>';
-  html+='<div class="sm-head">C\u1ee1 ch\u1eef</div>';
+  var html='<div class="sm-back" id="sm-back">'+backIco+' Cỡ chữ &amp; Màu sắc</div>';
+  html+='<div class="sm-head">Cỡ chữ</div><div class="sm-chips">';
   SIZES.forEach(function(s){
-    var on=s===subFontSize?' on':'';
-    html+='<div class="sm-opt'+on+'" data-sz="'+s+'">'+s+'%'+(s===subFontSize?chk:'')+'</div>';
+    html+='<div class="sm-chip'+(s===subFontSize?' on':'')+'" data-sz="'+s+'">'+s+'%</div>';
   });
-  html+='<div class="sm-head">M\u00e0u ch\u1eef</div>';
+  html+='</div><div class="sm-head">Màu chữ</div><div class="sm-chips">';
   COLORS.forEach(function(c){
-    var on=c.val===subColor?' on':'';
-    html+='<div class="sm-opt'+on+'" data-col="'+c.val+'" style="display:flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:50%;background:'+c.val+';border:1px solid rgba(255,255,255,.3);flex-shrink:0"></span>'+c.label+(c.val===subColor?chk:'')+'</div>';
+    html+='<div class="sm-dot'+(c.val===subColor?' on':'')+'" data-col="'+c.val+'" style="background:'+c.val+'"></div>';
   });
+  html+='</div>';
   smMain.style.display='none';smSub.innerHTML=html;smSub.style.display='block';
   document.getElementById('sm-back').onclick=function(){buildSmMain();};
   smSub.querySelectorAll('[data-sz]').forEach(function(el){
@@ -988,6 +1121,7 @@ function buildQlPage(){
   });
 } 
 buildSmMain();
+applySubsForEp();
 document.getElementById('btn-set').addEventListener('click',function(e){
   e.stopPropagation();smenu.classList.toggle('open');
   if(smenu.classList.contains('open')){buildSmMain();showCtrl(true);}
@@ -1189,7 +1323,7 @@ export default function PlayerScreen() {
       <StatusBar hidden />
       <WebView
         ref={webViewRef}
-        source={{ html: htmlContent, baseUrl: 'https://ophim1.com' }}
+        source={{ html: htmlContent, baseUrl: safeUrl.includes('edgecontent.site') ? 'https://onflix.lat' : 'https://ophim1.com' }}
         style={{ flex: 1, backgroundColor: '#000', opacity: loaded ? 1 : 0 }}
         allowsFullscreenVideo
         mediaPlaybackRequiresUserAction={false}
