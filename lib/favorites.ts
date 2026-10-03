@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Movie } from '@/types/movie';
+import { supabase } from '@/lib/supabase';
 
 const FAVORITES_KEY = '@ganh18_favorites';
 
@@ -14,6 +15,56 @@ export interface LocalFavoriteItem {
     thumb: Record<string, string>;
     episode_current?: string;
   };
+}
+
+export async function getSupabaseFavoriteItems(userId: string): Promise<LocalFavoriteItem[]> {
+  const { data, error } = await supabase
+    .from('favorites')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    movie: {
+      _id: row.movie_id || row.movie_slug,
+      name: row.movie_name,
+      slug: row.movie_slug,
+      origin_name: row.origin_name,
+      poster: row.poster || {},
+      thumb: row.thumb || {},
+      episode_current: row.episode_current,
+    },
+  }));
+}
+
+export async function toggleSupabaseFavorite(userId: string, movie: Movie): Promise<boolean> {
+  const slug = movie.slug || movie.id;
+  const { data: existing, error: findError } = await supabase
+    .from('favorites').select('id').eq('user_id', userId).eq('movie_slug', slug).maybeSingle();
+  if (findError) throw new Error(findError.message);
+  if (existing) {
+    const { error } = await supabase.from('favorites').delete().eq('id', existing.id);
+    if (error) throw new Error(error.message);
+    return false;
+  }
+  const { error } = await supabase.from('favorites').insert({
+    user_id: userId,
+    movie_id: movie.id || slug,
+    movie_slug: slug,
+    movie_name: movie.title,
+    origin_name: movie.title_en,
+    poster: movie.poster_url ? { default: movie.poster_url } : {},
+    thumb: movie.thumb_url ? { default: movie.thumb_url } : {},
+    episode_current: movie.current_episode ? String(movie.current_episode) : null,
+  });
+  if (error) throw new Error(error.message);
+  return true;
+}
+
+export async function removeSupabaseFavorite(userId: string, movieSlug: string): Promise<void> {
+  const { error } = await supabase.from('favorites').delete().eq('user_id', userId).eq('movie_slug', movieSlug);
+  if (error) throw new Error(error.message);
 }
 
 async function getStoredItems(): Promise<LocalFavoriteItem[]> {

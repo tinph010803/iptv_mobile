@@ -15,25 +15,30 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, ChevronRight, Pencil, KeyRound, Camera, Eye, EyeOff } from 'lucide-react-native';
+import { Image as ExpoImage } from 'expo-image';
+import { ChevronLeft, ChevronRight, Pencil, KeyRound, Camera, Eye, EyeOff, Layers } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { Colors } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { apiUpdateProfile, apiChangePassword } from '@/lib/authApi';
+import { DEFAULT_AVATAR_URL } from '@/lib/appConfig';
 
 const PRESET_AVATARS = [
-  'https://img.upanhnhanh.com/25ac35b6f54550d9583906919fb61fbf',
-  'https://img.upanhnhanh.com/e7f9fa0b547c0fe6d021cc2c6556ae62',
-  'https://img.upanhnhanh.com/093485df2403b756ae1ce245dc30ceb6',
-  'https://img.upanhnhanh.com/afec688dcdc9eaedab5abc6edc624950',
-  'https://img.upanhnhanh.com/4b460da3a5603611b8331d7d17cb5046',
-  'https://img.upanhnhanh.com/b504ee6715bb0775d243e2633500a5a5',
-  'https://img.upanhnhanh.com/4655a64ffcc05c7ea7a8e9c7fe1c768c',
-  'https://img.upanhnhanh.com/b6e97b1e0283c9fd644bee220f8b1ad1',
-];
+  'https://i.ibb.co/bMf2cym3/15.jpg',DEFAULT_AVATAR_URL,
+  'https://i.ibb.co/XZKjn9jD/03.jpg',
+  'https://i.ibb.co/sJ2B8K8g/05.jpg',
+  'https://i.ibb.co/M5jjRhqQ/07.jpg',
+  'https://i.ibb.co/XkjLt9JZ/11.jpg',
+  'https://i.ibb.co/JRPqH56p/14.jpg',
+  'https://i.ibb.co/tMrmtLDv/10.jpg'
 
-type SheetType = 'avatar' | 'info' | 'password' | null;
+];
+const AVATAR_FRAMES = Array.from(
+  { length: 45 },
+  (_, index) => `https://chophim.fun/avt_frames/frame_${index + 1}.png`,
+);
+
+type SheetType = 'avatar' | 'frame' | 'info' | 'password' | null;
 
 /* ─── Avatar picker sheet ──────────────────────────────────── */
 function AvatarSheet({
@@ -84,6 +89,82 @@ function AvatarSheet({
                 >
                   <Image source={{ uri: item }} style={styles.avatarPickerImg} />
                   {isSelected && <View style={styles.avatarCheckOverlay} />}
+                </TouchableOpacity>
+              );
+            }}
+          />
+          <View style={styles.sheetBtnRow}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={onClose} activeOpacity={0.8}>
+              <Text style={styles.cancelBtnText}>Huỷ</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.saveBtn, !selected && { opacity: 0.5 }]}
+              onPress={handleSave}
+              activeOpacity={0.8}
+              disabled={!selected || loading}
+            >
+              {loading
+                ? <ActivityIndicator color="#000" />
+                : <Text style={styles.saveBtnText}>Cập nhật</Text>}
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function FrameSheet({
+  visible,
+  currentAvatar,
+  currentFrame,
+  onClose,
+  onSave,
+}: {
+  visible: boolean;
+  currentAvatar?: string;
+  currentFrame?: string;
+  onClose: () => void;
+  onSave: (url: string) => Promise<void>;
+}) {
+  const [selected, setSelected] = useState(currentFrame || '');
+  const [loading, setLoading] = useState(false);
+  const avatar = currentAvatar || DEFAULT_AVATAR_URL;
+
+  async function handleSave() {
+    if (!selected) return;
+    setLoading(true);
+    try {
+      await onSave(selected);
+      onClose();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <Pressable style={styles.overlay} onPress={onClose}>
+        <Pressable style={[styles.sheet, { maxHeight: '80%' }]} onPress={() => {}}>
+          <View style={styles.handleBar} />
+          <Text style={styles.sheetTitle}>Chọn khung ảnh đại diện</Text>
+          <FlatList
+            key="frame-grid-4"
+            data={AVATAR_FRAMES}
+            numColumns={4}
+            keyExtractor={(item) => item}
+            contentContainerStyle={styles.avatarGrid}
+            columnWrapperStyle={styles.avatarRow}
+            renderItem={({ item }) => {
+              const isSelected = selected === item;
+              return (
+                <TouchableOpacity
+                  onPress={() => setSelected(item)}
+                  style={[styles.framePickerItem, isSelected && styles.avatarPickerSelected]}
+                  activeOpacity={0.8}
+                >
+                  <Image source={{ uri: avatar }} style={styles.framePreviewImage} />
+                  <ExpoImage source={item} style={styles.framePreviewImage} contentFit="cover" />
                 </TouchableOpacity>
               );
             }}
@@ -325,24 +406,27 @@ function PasswordSheet({
 /* ─── Main screen ──────────────────────────────────────────── */
 export default function ProfileEditScreen() {
   const router = useRouter();
-  const { user, updateUser } = useAuth();
+  const { user, updateProfile, changePassword } = useAuth();
   const { showToast } = useToast();
   const [activeSheet, setActiveSheet] = useState<SheetType>(null);
 
   async function handleSaveAvatar(url: string) {
-    const updated = await apiUpdateProfile({ avatar: url });
-    updateUser({ avatar: updated.avatar ?? url });
+    await updateProfile({ avatar: url });
     showToast('Đã cập nhật ảnh đại diện', 'success');
   }
 
+  async function handleSaveFrame(url: string) {
+    await updateProfile({ avatarFrame: url });
+    showToast('Đã cập nhật khung ảnh đại diện', 'success');
+  }
+
   async function handleSaveInfo(displayName: string, gender: 'male' | 'female' | 'other') {
-    const updated = await apiUpdateProfile({ displayName, gender });
-    updateUser({ displayName: updated.displayName ?? displayName, gender: updated.gender ?? gender });
+    await updateProfile({ displayName, gender });
     showToast('Đã cập nhật thông tin', 'success');
   }
 
   async function handleSavePassword(currentPassword: string, newPassword: string) {
-    await apiChangePassword({ currentPassword, newPassword });
+    await changePassword(currentPassword, newPassword);
     showToast('Đã đổi mật khẩu thành công', 'success');
   }
 
@@ -360,6 +444,11 @@ export default function ProfileEditScreen() {
       id: 'info',
       label: 'Thay đổi thông tin',
       icon: <Pencil size={18} color={Colors.textSecondary} />,
+    },
+    {
+      id: 'frame',
+      label: 'Đổi khung ảnh đại diện',
+      icon: <Layers size={18} color={Colors.textSecondary} />,
     },
     {
       id: 'password',
@@ -401,6 +490,13 @@ export default function ProfileEditScreen() {
         currentAvatar={user?.avatar}
         onClose={() => setActiveSheet(null)}
         onSave={handleSaveAvatar}
+      />
+      <FrameSheet
+        visible={activeSheet === 'frame'}
+        currentAvatar={user?.avatar}
+        currentFrame={user?.avatarFrame}
+        onClose={() => setActiveSheet(null)}
+        onSave={handleSaveFrame}
       />
       <InfoSheet
         visible={activeSheet === 'info'}
@@ -518,7 +614,7 @@ const styles = StyleSheet.create({
 
   /* avatar grid */
   avatarGrid: { paddingVertical: 8 },
-  avatarRow: { justifyContent: 'space-between', marginBottom: 10 },
+  avatarRow: { justifyContent: 'space-around', marginBottom: 10 },
   avatarPickerItem: {
     width: '23%',
     aspectRatio: 1,
@@ -529,6 +625,17 @@ const styles = StyleSheet.create({
   },
   avatarPickerSelected: { borderColor: '#D4A017' },
   avatarPickerImg: { width: '100%', height: '100%' },
+  framePickerItem: {
+    width: '23%',
+    aspectRatio: 1,
+    borderRadius: 50,
+    overflow: 'hidden',
+    borderWidth: 3,
+    borderColor: 'transparent',
+    position: 'relative',
+    backgroundColor: Colors.backgroundLight,
+  },
+  framePreviewImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined },
   avatarCheckOverlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(212,160,23,0.25)',

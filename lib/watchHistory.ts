@@ -90,6 +90,7 @@ async function remoteSave(
     })
     .eq('user_id', userId)
     .eq('movie_slug', entry.movieSlug)
+    .eq('episode_name', entry.episodeName || 'Tập 1')
     .select('id');
 
   if (updateErr) {

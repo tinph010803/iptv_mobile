@@ -18,12 +18,8 @@ import { supabase } from '@/lib/supabase';
 import { Movie } from '@/types/movie';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import {
-  apiGetGtavnMovieId,
-  apiCheckFavorite,
-  apiToggleFavorite,
-} from '@/lib/authApi';
-import { isFavorite as isLocalFavorite, removeFavorite as removeLocalFavorite, saveLocalFavorite } from '@/lib/favorites';
+import { apiGetGtavnMovieId } from '@/lib/authApi';
+import { isFavorite as isLocalFavorite, removeFavorite as removeLocalFavorite, saveLocalFavorite, toggleSupabaseFavorite } from '@/lib/favorites';
 import {
   ChevronLeft,
   Play,
@@ -150,7 +146,7 @@ export default function MovieDetailScreen() {
     resumeEpisode?: string;
     resumeServer?: string;
   }>();
-  const { user, tokens } = useAuth();
+  const { user } = useAuth();
   const { showToast } = useToast();
   const lastResumeKeyRef = useRef<string | null>(null);
   const navigatingToPlayerRef = useRef(false);
@@ -664,15 +660,8 @@ export default function MovieDetailScreen() {
   const loadGtavnIdAndCheckFavorite = async () => {
     try {
       if (!user || !movie) return;
-      // Get gtavn movie _id by normalized slug
-      let gtavnId = gtavnMovieIdRef.current;
-      if (!gtavnId) {
-        gtavnId = await apiGetGtavnMovieId(movie.slug || id);
-        gtavnMovieIdRef.current = gtavnId;
-      }
-      if (!gtavnId) return;
-      const fav = await apiCheckFavorite(gtavnId);
-      setIsFavorite(fav);
+      const { data } = await supabase.from('favorites').select('id').eq('user_id', user.id).eq('movie_slug', movie.slug || id).maybeSingle();
+      setIsFavorite(Boolean(data));
     } catch { }
   };
 
@@ -748,17 +737,9 @@ export default function MovieDetailScreen() {
     if (favoriteLoading) return;
     try {
       setFavoriteLoading(true);
+      if (!movie) return;
       const movieSlug = movie?.slug || id;
-      let gtavnId = gtavnMovieIdRef.current;
-      if (!gtavnId) {
-        gtavnId = await apiGetGtavnMovieId(movieSlug);
-        gtavnMovieIdRef.current = gtavnId;
-      }
-      if (!gtavnId) {
-        showToast('Không tìm thấy phim trong hệ thống', 'error');
-        return;
-      }
-      const nowFav = await apiToggleFavorite(gtavnId);
+      const nowFav = await toggleSupabaseFavorite(user.id, movie);
       setIsFavorite(nowFav);
       showToast(
         nowFav ? 'Đã thêm vào Yêu thích' : 'Đã xoá khỏi Yêu thích',

@@ -15,6 +15,7 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image as ExpoImage } from 'expo-image';
 import {
   User,
   Eye,
@@ -29,6 +30,9 @@ import {
   LogOut,
   Star,
   Link2,
+  Mars,
+  Venus,
+  Infinity,
 } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
@@ -84,15 +88,17 @@ function AuthModal({
   async function handleRegister() {
     setError('');
     if (!displayName.trim()) return setError('Vui lòng nhập tên.');
+    if (!username.trim()) return setError('Vui lòng nhập tên đăng nhập.');
+    if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(username.trim())) {
+      return setError('Tên đăng nhập dài 3-30 ký tự, chỉ gồm chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.');
+    }
     if (!email.trim()) return setError('Vui lòng nhập email.');
     if (!password) return setError('Vui lòng nhập mật khẩu.');
     if (password.length < 6) return setError('Mật khẩu ít nhất 6 ký tự.');
     if (password !== confirmPassword) return setError('Mật khẩu nhập lại không khớp.');
-    const derivedUsername = displayName.replace(/\s+/g, '').toLowerCase();
-    const usernameToUse = derivedUsername.length >= 3 ? derivedUsername : derivedUsername.padEnd(3, '0');
     try {
       setLoading(true);
-      await register({ email, username: usernameToUse, password, displayName });
+      await register({ email, username: username.trim().toLowerCase(), password, displayName });
       onClose();
     } catch (e: any) {
       setError(e?.message || 'Đăng ký thất bại.');
@@ -103,7 +109,7 @@ function AuthModal({
 
   async function handleLogin() {
     setError('');
-    if (!username.trim()) return setError('Vui lòng nhập tên đăng nhập.');
+    if (!username.trim()) return setError('Vui lòng nhập email hoặc tên đăng nhập.');
     if (!loginPassword) return setError('Vui lòng nhập mật khẩu.');
     try {
       setLoading(true);
@@ -171,6 +177,15 @@ function AuthModal({
                 />
                 <TextInput
                   style={styles.input}
+                  placeholder="Tên đăng nhập"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={username}
+                  onChangeText={setUsername}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TextInput
+                  style={styles.input}
                   placeholder="Nhập email của bạn"
                   placeholderTextColor={Colors.textSecondary}
                   value={email}
@@ -213,7 +228,7 @@ function AuthModal({
               <>
                 <TextInput
                   style={styles.input}
-                  placeholder="Tên đăng nhập"
+                  placeholder="Email hoặc tên đăng nhập"
                   placeholderTextColor={Colors.textSecondary}
                   value={username}
                   onChangeText={setUsername}
@@ -289,19 +304,31 @@ export default function AccountScreen() {
             activeOpacity={0.8}
           >
             <View style={styles.avatarRow}>
-              {user.avatar ? (
-                <Image source={{ uri: user.avatar }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <User size={24} color={Colors.text} />
-                </View>
-              )}
+              <View style={styles.avatarFrameWrap}>
+                {user.avatar ? (
+                  <Image source={{ uri: user.avatar }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <User size={24} color={Colors.text} />
+                  </View>
+                )}
+                {user.avatarFrame ? (
+                  <ExpoImage source={user.avatarFrame} style={styles.avatarFrameOverlay} contentFit="cover" />
+                ) : null}
+              </View>
               <View style={styles.profileInfo}>
                 <View style={styles.nameRow}>
+                  {user.role === 'admin' ? <Text style={styles.adminBadge}>ADMIN</Text> : null}
                   <Text style={styles.profileName}>
                     {user.displayName || user.username}
                   </Text>
-                  <Text style={styles.infinityBadge}> ∞</Text>
+                  {user.gender === 'male' ? (
+                    <Mars size={16} color="#75AFFF" strokeWidth={2.5} />
+                  ) : user.gender === 'female' ? (
+                    <Venus size={16} color="#F28BB5" strokeWidth={2.5} />
+                  ) : (
+                    <Infinity size={18} color="#D4A017" strokeWidth={2.5} />
+                  )}
                 </View>
                 <Text style={styles.profileEmail}>{user.email}</Text>
               </View>
@@ -439,7 +466,9 @@ const styles = StyleSheet.create({
   /* logged in */
   profileCard: { paddingHorizontal: 16, paddingBottom: 16 },
   avatarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  avatarFrameWrap: { width: 50, height: 50, position: 'relative' },
   avatar: { width: 50, height: 50, borderRadius: 25 },
+  avatarFrameOverlay: { position: 'absolute', width: 50, height: 50, borderRadius: 25 },
   avatarPlaceholder: {
     width: 50,
     height: 50,
@@ -450,6 +479,17 @@ const styles = StyleSheet.create({
   },
   profileInfo: { marginLeft: 12 },
   nameRow: { flexDirection: 'row', alignItems: 'center' },
+  adminBadge: {
+    color: '#111936',
+    backgroundColor: '#F0B323',
+    fontSize: 9,
+    fontWeight: '800',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginRight: 6,
+    overflow: 'hidden',
+  },
   profileName: { color: Colors.text, fontSize: 16, fontWeight: '700' },
   infinityBadge: { color: '#D4A017', fontSize: 18, fontWeight: '900' },
   profileEmail: { color: Colors.textSecondary, fontSize: 13, marginTop: 2 },

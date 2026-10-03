@@ -34,6 +34,7 @@ export interface User {
   username: string;
   displayName?: string;
   avatar?: string;
+  avatarFrame?: string;
   role: 'user' | 'admin' | 'moderator';
   isActive: boolean;
   gender?: 'male' | 'female' | 'other';

@@ -14,8 +14,7 @@ import { useRouter } from 'expo-router';
 import { Colors } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { apiGetFavorites, apiRemoveFavorite, FavoriteItem } from '@/lib/authApi';
-import { getLocalFavoriteItems, LocalFavoriteItem, removeFavorite as removeLocalFavorite } from '@/lib/favorites';
+import { getLocalFavoriteItems, getSupabaseFavoriteItems, LocalFavoriteItem, removeFavorite as removeLocalFavorite, removeSupabaseFavorite } from '@/lib/favorites';
 
 function getPosterUrl(poster: Record<string, string> | undefined): string {
   if (!poster) return '';
@@ -47,7 +46,7 @@ export default function FavoritesScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { showToast } = useToast();
-  const [items, setItems] = useState<Array<FavoriteItem | LocalFavoriteItem>>([]);
+  const [items, setItems] = useState<LocalFavoriteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
 
@@ -55,8 +54,7 @@ export default function FavoritesScreen() {
     try {
       setLoading(true);
       if (user) {
-        const res = await apiGetFavorites();
-        setItems(res.items);
+        setItems(await getSupabaseFavoriteItems(user.id));
       } else {
         setItems(await getLocalFavoriteItems());
       }
@@ -71,11 +69,11 @@ export default function FavoritesScreen() {
     loadFavorites();
   }, [loadFavorites]);
 
-  const handleRemove = async (item: FavoriteItem) => {
+  const handleRemove = async (item: LocalFavoriteItem) => {
     try {
       setRemoving(item.id);
       if (user) {
-        await apiRemoveFavorite(item.movie._id);
+        await removeSupabaseFavorite(user.id, item.movie.slug);
       } else {
         await removeLocalFavorite(item.movie.slug);
       }

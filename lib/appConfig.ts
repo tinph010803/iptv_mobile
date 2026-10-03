@@ -7,6 +7,7 @@ export const ONFLIX_DEFAULT_URL = 'https://ikiwi.my/';
 export const ROPHIM_API_DEFAULT_URL = 'https://cobephim.com/baseapi/api/v1';
 export const RO1_DEFAULT_URL = 'https://cobephim.com';
 export const RO2_DEFAULT_URL = 'https://rophim.stream';
+export const DEFAULT_AVATAR_URL = 'https://i.ibb.co/27XctfvC/02.jpg';
 
 export function normalizeHttpUrl(value: string): string | null {
   const trimmed = value.trim();
