@@ -20,6 +20,7 @@ export interface Movie {
   created_at: string;
   updated_at: string;
   stream_url?: string;
+  trailer_url?: string;
   episodes_data?: Array<{ name: string; link_embed: string; link_m3u8: string }>;
   servers?: Array<{ name: string; episodes: Array<{ name: string; link_embed: string; link_m3u8: string }> }>;
   genres?: string[];
@@ -31,7 +32,6 @@ export interface Movie {
   lang?: string;
   lang_key?: string[];
   last_episodes?: Array<{ server_name: string; name: string; is_ai?: boolean }>;
-  // trailer_url?: string;
 }
 
 export interface Category {

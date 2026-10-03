@@ -13,7 +13,7 @@ import {
 import { MovieCard } from '@/components/MovieCard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/colors';
-import { getMovieBySlug } from '@/lib/ophim';
+import { getKKMoviePeople, getMovieBySlug } from '@/lib/ophim';
 import { supabase } from '@/lib/supabase';
 import { Movie } from '@/types/movie';
 import { useAuth } from '@/context/AuthContext';
@@ -41,10 +41,9 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path as SvgPath } from 'react-native-svg';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { CastMember, getTMDBCast, searchTMDB } from '@/lib/tmdb';
+import { CastMember } from '@/lib/tmdb';
 import { WebView } from 'react-native-webview';
 import { stashPlayerServers } from '@/lib/playerSession';
-import { getCachedMovieBySlug } from '@/lib/ophim';
 import { formatTime, getWatchHistory, WatchHistoryEntry } from '@/lib/watchHistory';
 import { getTMDBSchedule, ScheduleItem } from '@/lib/tmdbSchedule';
 import { HT_LOCAL_SOURCES } from '@/lib/htLocalSources';
@@ -70,6 +69,12 @@ function toSlug(str: string): string {
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-');
+}
+function getYouTubeVideoId(url?: string): string | null {
+  const match = String(url ?? '').match(
+    /(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i,
+  );
+  return match?.[1] ?? null;
 }
 function detectProvider(serverName: string): 'OP' | 'KK' | 'NC' | 'HT' {
   if (/\[HT\]/i.test(serverName)) return 'HT';
@@ -147,15 +152,15 @@ export default function MovieDetailScreen() {
   }>();
   const { user, tokens } = useAuth();
   const { showToast } = useToast();
-  const cachedMovie = id ? getCachedMovieBySlug(id) : null;
   const lastResumeKeyRef = useRef<string | null>(null);
   const navigatingToPlayerRef = useRef(false);
   const playerNavGuardRef = useRef<string | null>(null);
-  const [movie, setMovie] = useState<Movie | null>(cachedMovie);
+  const movieLoadRequestRef = useRef(0);
+  const [movie, setMovie] = useState<Movie | null>(null);
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteLoading, setFavoriteLoading] = useState(false);
   const gtavnMovieIdRef = useRef<string | null>(null);
-  const [loading, setLoading] = useState(!cachedMovie);
+  const [loading, setLoading] = useState(true);
   const [playerParams, setPlayerParams] = useState<{ url: string; title: string; episode: string; movieId: string; movieSlug: string; serverLabel: string; poster: string; initialTime?: string; serversKey?: string; tmdbId?: string; tmdbType?: string; titleEn?: string; year?: string; backdrop?: string } | null>(null);
   const [infoExpanded, setInfoExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('Tập phim');
@@ -228,28 +233,38 @@ export default function MovieDetailScreen() {
     return () => { cancelled = true; };
   }, [movie?.slug, user?.id]));
 
-  // Fetch cast from TMDB when Diễn viên tab is selected
+  useEffect(() => {
+    setCast([]);
+    setCastFetched(false);
+  }, [movie?.id]);
+
+  // Use the cast provided by KK/phimapi.com for this movie.
   useEffect(() => {
     if (activeTab !== 'Diễn viên' || !movie || castFetched) return;
     setCastFetched(true);
     setCastLoading(true);
     (async () => {
       try {
-        let id = movie.tmdb_id;
-        let type = movie.tmdb_type ?? 'movie';
-        if (!id) {
-          const found = await searchTMDB(movie.title_en || movie.title, movie.year);
-          if (found) { id = found.id; type = found.type; }
-        }
-        if (id) {
-          const members = await getTMDBCast(id, type);
-          setCast(members);
-        }
-      } catch { /* ignore */ } finally {
+        const kkPeople = await getKKMoviePeople(movie.slug || id || '');
+        const members: CastMember[] = kkPeople.length > 0
+          ? kkPeople
+          : (movie.actors ?? [])
+            .filter((name) => String(name).trim().length > 0)
+            .slice(0, 20)
+            .map((name, index) => ({
+              id: index + 1,
+              name: String(name).trim(),
+              character: '',
+              profile_url: null,
+            }));
+        setCast(members);
+      } catch {
+        setCast([]);
+      } finally {
         setCastLoading(false);
       }
     })();
-  }, [activeTab, movie, castFetched]);
+  }, [activeTab, movie, castFetched, id]);
 
   // Load gallery from phimapi first, then fall back to the legacy OPhim endpoint.
   useEffect(() => {
@@ -270,7 +285,7 @@ export default function MovieDetailScreen() {
         } catch { /* Try the legacy endpoint below. */ }
 
         try {
-          const response = await fetch(`https://ophim1.com/v1/api/phim/${slug}/images`);
+          const response = await fetch(`https://phimapi.com/v1/api/phim/${slug}/images`);
           const json = await response.json();
           if (Array.isArray(json?.data?.images)) setGallery(json.data.images);
         } catch { /* Keep the empty state. */ }
@@ -295,7 +310,7 @@ export default function MovieDetailScreen() {
         let cdn: string = json?.data?.APP_DOMAIN_CDN_IMAGE ?? 'https://phimimg.com';
         let source: 'kk' | 'op' = 'kk';
         if (!Array.isArray(items) || items.length === 0) {
-          response = await fetch(`https://ophim1.com/v1/api/the-loai/${firstGenreSlug}?sort_field=modified.time&sort_type=desc&limit=20`);
+          response = await fetch(`https://phimapi.com/v1/api/the-loai/${firstGenreSlug}?sort_field=modified.time&sort_type=desc&limit=20`);
           json = await response.json();
           items = json?.data?.items ?? [];
           cdn = json?.data?.APP_DOMAIN_CDN_IMAGE ?? 'https://img.ophim.live';
@@ -324,15 +339,17 @@ export default function MovieDetailScreen() {
           return 0;
         };
         const filtered = items
-          .filter(m => m.slug !== (movie.slug || id))
+          .filter(m => m.slug && m.slug !== (movie.slug || id))
           .sort((a, b) => parseModifiedTime(b) - parseModifiedTime(a))
           .slice(0, 9);
         setSuggested(filtered.map((item: any) => ({
           ...item,
+          id: String(item.id || item._id || item.slug),
+          slug: String(item.slug),
           title: item.name,
           title_en: item.origin_name ?? '',
-          thumb_url: buildImg(item.thumb_url),
-          poster_url: buildImg(item.poster_url || item.thumb_url),
+          poster_url: buildImg(item.thumb_url || item.poster_url),
+          thumb_url: buildImg(item.poster_url || item.thumb_url),
           is_series: item.episode_total > 1,
           episodes: Number(item.episode_total) || 1,
           current_episode: Number(item.episode_current) || 0,
@@ -370,9 +387,14 @@ export default function MovieDetailScreen() {
   }, [playerParams]);
 
   useEffect(() => {
-    if (id) {
-      loadMovie();
-    }
+    if (!id) return;
+
+    const requestId = ++movieLoadRequestRef.current;
+    setMovie(null);
+    setLoading(true);
+    setPlayerParams(null);
+    didInitSourceSelection.current = false;
+    loadMovie(id, requestId);
   }, [id]);
 
   useEffect(() => {
@@ -423,6 +445,8 @@ export default function MovieDetailScreen() {
         filename: '',
         link_embed: '',
         link_m3u8: ep.link_m3u8,
+        thumb_vtt: ep.thumb_vtt,
+        skip_intro_url: ep.skip_intro_url,
         subs: ep.subs ?? [],
       })),
     })) as PlayerServer[];
@@ -611,28 +635,29 @@ export default function MovieDetailScreen() {
     } catch { }
   };
 
-  const loadMovie = async () => {
+  const loadMovie = async (requestedId: string, requestId: number) => {
     try {
-      const ophimMovie = await getMovieBySlug(id);
+      const kkMovie = await getMovieBySlug(requestedId);
+      if (requestId !== movieLoadRequestRef.current) return;
 
-      if (ophimMovie) {
-        setMovie(ophimMovie);
+      if (kkMovie) {
+        setMovie(kkMovie);
         return;
       }
 
-      if (isUuid(id)) {
+      if (isUuid(requestedId)) {
         const { data } = await supabase
           .from('movies')
           .select('*')
-          .eq('id', id)
+          .eq('id', requestedId)
           .maybeSingle();
 
-        setMovie(data);
+        if (requestId === movieLoadRequestRef.current) setMovie(data);
       }
     } catch (error) {
       console.error('Error loading movie:', error);
     } finally {
-      setLoading(false);
+      if (requestId === movieLoadRequestRef.current) setLoading(false);
     }
   };
 
@@ -948,7 +973,17 @@ export default function MovieDetailScreen() {
               style={[styles.watchBtnLarge, movie.status === 'trailer' && { opacity: 0.4 }]}
               activeOpacity={movie.status === 'trailer' ? 1 : 0.85}
               disabled={movie.status === 'trailer'}
-              onPress={() => openPlayer(firstEpisodeUrl, firstEpisodeName, movie.servers?.[0]?.name ?? '')}
+              onPress={() => {
+                const firstEpisode = currentEps[0] ?? movieServers[effectiveServerIdx]?.episodes?.[0];
+                if (!firstEpisode) return;
+                openPlayer(
+                  firstEpisode.link_m3u8 || firstEpisode.link_embed,
+                  firstEpisode.name || firstEpisodeName,
+                  movieServers[effectiveServerIdx]?.name ?? '',
+                  undefined,
+                  firstEpisode.link_embed,
+                );
+              }}
             >
               <LinearGradient
                 colors={['#FFA9CB', '#FFD3E6']}
@@ -1263,35 +1298,33 @@ export default function MovieDetailScreen() {
             </View>
           )}
 
-          {/* {activeTab === 'Trailer' && (
+          {activeTab === 'Trailer' && (
             <View>
-              {movie.trailer_url ? (() => {
-                // Extract YouTube video ID
-                const match = movie.trailer_url.match(
-                  /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
-                );
-                const videoId = match?.[1];
+              {(() => {
+                const videoId = getYouTubeVideoId(movie.trailer_url);
                 if (!videoId) return (
                   <View style={styles.emptyWrap}>
-                    <Text style={styles.emptyText}>Không hỗ trợ định dạng trailer này</Text>
+                    <Text style={styles.emptyText}>{movie.trailer_url ? 'Không hỗ trợ định dạng trailer này' : 'Chưa có trailer'}</Text>
                   </View>
                 );
                 return (
                   <View style={styles.trailerWrap}>
-                    <YoutubePlayer
-                      height={220}
-                      play={false}
-                      videoId={videoId}
+                    <WebView
+                      source={{
+                        uri: `https://www.youtube-nocookie.com/embed/${videoId}?playsinline=1&origin=https%3A%2F%2Fwww.rophim.soy`,
+                        headers: { Referer: 'https://www.rophim.soy/' },
+                      }}
+                      style={styles.trailerPlayer}
+                      javaScriptEnabled
+                      domStorageEnabled
+                      allowsFullscreenVideo
+                      mediaPlaybackRequiresUserAction
                     />
                   </View>
                 );
-              })() : (
-                <View style={styles.emptyWrap}>
-                  <Text style={styles.emptyText}>Chưa có trailer</Text>
-                </View>
-              )}
+              })()}
             </View>
-          )} */}
+          )}
 
 
           {activeTab === 'Đề xuất' && (

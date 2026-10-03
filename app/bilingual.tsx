@@ -32,7 +32,7 @@ export default function BilingualScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
           <ChevronLeft size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Phim Song Ngữ</Text>
+        <Text style={styles.headerTitle}>Phim Chất Lượng Cao</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

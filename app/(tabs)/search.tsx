@@ -15,8 +15,9 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/colors';
-import { getHomeMovies, searchMoviesWithFilters } from '@/lib/ophim';
+import { getHomeMovies, getMovieBySlug, searchMoviesWithFilters } from '@/lib/ophim';
 import { Movie } from '@/types/movie';
+import { HT_LOCAL_MOVIES } from '@/lib/htLocalSources';
 import { Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { GENRES, COUNTRIES, MOVIE_TYPES, SORT_OPTIONS, YEARS } from '@/constants/filters';
@@ -38,6 +39,14 @@ const DEFAULT_FILTERS: FilterState = { genre: '', country: '', type: '', year: n
 
 function countActive(f: FilterState) {
   return [f.genre, f.country, f.type, f.year != null ? '1' : '', f.sort].filter(Boolean).length;
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
 }
 
 // ─── Movie Card ───────────────────────────────────────────────────────────────
@@ -297,16 +306,40 @@ export default function SearchScreen() {
       return;
     }
     setSearching(true);
-    searchMoviesWithFilters({
+    const apiSearch = searchMoviesWithFilters({
       keyword: kw.trim() || undefined,
       genre: f.genre || undefined,
       country: f.country || undefined,
       type: f.type || undefined,
       year: f.year,
       sort: f.sort || undefined,
-    })
-      .then(setResults)
-      .catch(() => setResults([]))
+    });
+    const normalizedKeyword = normalizeSearchText(kw.trim());
+    const localSearch = Object.values(HT_LOCAL_MOVIES)
+      .filter((movie) => {
+        const searchable = normalizeSearchText(
+          [movie.slug, movie.title, movie.title_en, ...(movie.actors ?? [])].filter(Boolean).join(' '),
+        );
+        if (normalizedKeyword && !searchable.includes(normalizedKeyword)) return false;
+        if (f.year && movie.year !== f.year) return false;
+        if (f.country && normalizeSearchText(movie.country ?? '') !== normalizeSearchText(f.country)) return false;
+        if (f.genre && !(movie.genres ?? []).some((genre) => normalizeSearchText(genre).includes(normalizeSearchText(f.genre)))) return false;
+        return true;
+      })
+      .map((movie) => getMovieBySlug(movie.slug));
+
+    Promise.allSettled([apiSearch, Promise.all(localSearch)])
+      .then(([apiResult, localResult]) => {
+        const apiMovies = apiResult.status === 'fulfilled' ? apiResult.value : [];
+        const localMovies = localResult.status === 'fulfilled' ? localResult.value.filter(Boolean) as Movie[] : [];
+        const seen = new Set<string>();
+        setResults([...apiMovies, ...localMovies].filter((movie) => {
+          const key = movie.slug || movie.id;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }));
+      })
       .finally(() => setSearching(false));
   }, []);
 

@@ -1,8 +1,8 @@
 import { Movie } from '@/types/movie';
+import { HT_LOCAL_MOVIES, HT_LOCAL_SOURCES } from '@/lib/htLocalSources';
 
-const OPHIM_BASE_URL = 'https://ophim1.com';
 const KK_BASE_URL = 'https://phimapi.com';
-const OPHIM_IMAGE_BASE_URL = 'https://img.ophim.live';
+const KK_IMAGE_BASE_URL = 'https://phimimg.com';
 const NGUONC_BASE_URL = 'https://phim.nguonc.com/api';
 const NGUONC_PROXY_BASE_URL = 'https://cdn-nguonc.hailab.cloud/';
 const KK_PROXY_BASE_URL = 'https://xiaofilm.online/api/proxy_m3u8';
@@ -174,6 +174,7 @@ type NguoncMoviePayload = {
   original_name?: string;
   thumb_url?: string;
   poster_url?: string;
+  trailer_url?: string;
   description?: string;
   total_episodes?: number | string;
   current_episode?: number | string;
@@ -204,7 +205,7 @@ type NguoncSearchMovie = {
   language?: string;
 };
 
-function normalizeImageUrl(url?: string, imageBaseUrl = OPHIM_IMAGE_BASE_URL): string {
+function normalizeImageUrl(url?: string, imageBaseUrl = KK_IMAGE_BASE_URL): string {
   if (!url || url.trim() === '') {
     return 'https://images.pexels.com/photos/7991579/pexels-photo-7991579.jpeg';
   }
@@ -547,17 +548,10 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
   }
 
   const loadingPromise = (async () => {
-    const [item, kkItem] = await Promise.all([
-      fetchOPhimItemBySlugSafe(normalizedSlug),
-      fetchKKItemBySlugSafe(normalizedSlug),
-    ]);
+    const kkItem = await fetchKKItemBySlugSafe(normalizedSlug);
 
-    if (item || kkItem) {
-      const baseMovie = item && kkItem
-        ? mergeMovieDetails(mapKKMovie(kkItem), mapOPhimMovie(item))
-        : kkItem
-          ? mapKKMovie(kkItem)
-          : mapOPhimMovie(item!);
+    if (kkItem) {
+      const baseMovie = mapKKMovie(kkItem);
       cacheDetailMovie(baseMovie);
 
       if (!detailEnrichPendingCache.has(normalizedSlug)) {
@@ -616,7 +610,6 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
       null as NguoncDetailResponse | null,
     );
 
-    let itemFromOrigin: Record<string, unknown> | null = null;
     let kkItemFromOrigin: Record<string, unknown> | null = null;
     const originCandidates = [
       String(nc?.movie?.original_name || nc?.movie?.name || ''),
@@ -625,18 +618,6 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
     for (const candidate of originCandidates) {
       kkItemFromOrigin = await resolveKKMovieByOriginName(candidate);
       if (kkItemFromOrigin) break;
-
-      itemFromOrigin = await resolveOPhimMovieByOriginName(candidate);
-      if (itemFromOrigin) break;
-    }
-
-    if (itemFromOrigin) {
-      const resolvedOrigin = String(itemFromOrigin.origin_name || itemFromOrigin.name || normalizedSlug);
-      nc = await withTimeout(
-        resolveNguoncMovieForOphim(normalizedSlug, resolvedOrigin),
-        EXTERNAL_SOURCE_TIMEOUT_MS,
-        nc as NguoncDetailResponse | null,
-      );
     }
 
     if (kkItemFromOrigin?.slug) {
@@ -647,7 +628,7 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
       );
     }
 
-    if (!itemFromOrigin && !kkItemFromOrigin && !nc?.movie) {
+    if (!kkItemFromOrigin && !nc?.movie) {
       return null;
     }
 
@@ -657,9 +638,6 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
     if (kkItemFromOrigin) {
       movie = mapKKMovie(kkItemFromOrigin);
       baseSlug = kkItemFromOrigin.slug;
-    } else if (itemFromOrigin) {
-      movie = mapOPhimMovie(itemFromOrigin);
-      baseSlug = itemFromOrigin.slug;
     } else {
       movie = mapNguoncMovie(nc!.movie!, normalizedSlug);
       baseSlug = nc!.movie!.slug || normalizedSlug;
@@ -700,26 +678,77 @@ export async function getMovieBySlug(slug: string): Promise<Movie | null> {
   const normalizedSlug = normalizeDetailCacheKey(slug);
   if (!normalizedSlug) return null;
 
+  const localMovie = buildLocalHtMovie(normalizedSlug);
+  if (localMovie) {
+    cacheDetailMovie(localMovie);
+    return localMovie;
+  }
+
   const cached = getCachedMovieBySlug(normalizedSlug);
   if (cached) {
-    const hasPlayableData =
-      (cached.servers?.length ?? 0) > 0 ||
-      (cached.episodes_data?.length ?? 0) > 0 ||
-      !!cached.stream_url;
-
-    if (!hasPlayableData || needsFreshDetail(cached)) {
-      return loadMovieBySlugInternal(normalizedSlug, true);
-    }
-
-    // List payloads can be cached before full detail arrives.
-    // If playback data is missing, await a fresh detail fetch instead of returning partial data.
-    if (!detailPendingCache.has(normalizedSlug)) {
-      void loadMovieBySlugInternal(normalizedSlug, true);
-    }
-    return cached;
+    // List responses may contain a playable OP source while the full detail
+    // response also has KK/NC sources. Do not let that partial cache decide
+    // which servers are shown on the detail screen.
+    return loadMovieBySlugInternal(normalizedSlug, true);
   }
 
   return loadMovieBySlugInternal(normalizedSlug, false);
+}
+
+function buildLocalHtMovie(slug: string): Movie | null {
+  const metadata = HT_LOCAL_MOVIES[slug];
+  const sources = HT_LOCAL_SOURCES[slug];
+  if (!metadata || !sources?.length) return null;
+
+  const servers = sources.map((source) => ({
+    name: source.serverName,
+    episodes: source.episodes.map((episode) => ({
+      name: episode.name,
+      link_embed: '',
+      link_m3u8: episode.link_m3u8,
+      subs: episode.subs ?? [],
+      thumb_vtt: episode.thumb_vtt,
+      skip_intro_url: episode.skip_intro_url,
+    })),
+  }));
+  const firstEpisodes = servers[0]?.episodes ?? [];
+  const episodeCount = Math.max(
+    sources.reduce((count, source) => Math.max(count, source.episodes.length), 0),
+    1,
+  );
+  const now = new Date().toISOString();
+
+  return {
+    id: metadata.slug,
+    slug: metadata.slug,
+    title: metadata.title,
+    title_en: metadata.title_en ?? metadata.title,
+    description: metadata.description ?? 'Chưa có mô tả cho phim này.',
+    poster_url: metadata.thumb_url ?? metadata.poster_url,
+    thumb_url: metadata.poster_url,
+    imdb_rating: 0,
+    year: metadata.year ?? new Date().getFullYear(),
+    episodes: episodeCount,
+    current_episode: episodeCount,
+    duration: 0,
+    duration_text: '',
+    quality: 'HD',
+    age_rating: 'T13',
+    is_series: episodeCount > 1,
+    status: 'ongoing',
+    is_featured: false,
+    created_at: now,
+    updated_at: now,
+    stream_url: firstEpisodes[0]?.link_m3u8 || firstEpisodes[0]?.link_embed || '',
+    episodes_data: firstEpisodes,
+    servers,
+    genres: metadata.genres ?? [],
+    country: metadata.country ?? '',
+    director: metadata.director ?? '',
+    actors: metadata.actors ?? [],
+    tmdb_id: metadata.tmdb_id,
+    tmdb_type: metadata.tmdb_type,
+  };
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallbackValue: T): Promise<T> {
@@ -805,6 +834,7 @@ function mapNguoncMovie(ncMovie: NguoncMoviePayload, requestedSlug: string): Mov
     created_at: nowIso,
     updated_at: nowIso,
     stream_url: firstEpisodes[0]?.link_m3u8 || firstEpisodes[0]?.link_embed || '',
+    trailer_url: String(ncMovie.trailer_url || ''),
     episodes_data: firstEpisodes,
     servers,
     genres,
@@ -826,7 +856,7 @@ function normalizeKKServerName(serverName: string, index: number): string {
   return `${base} [KK]`;
 }
 
-function mapOPhimMovie(raw: any, imageBaseUrl = OPHIM_IMAGE_BASE_URL): Movie {
+function mapMovie(raw: any, imageBaseUrl = KK_IMAGE_BASE_URL): Movie {
   const episodeTotal = toNumber(raw.episode_total, 1);
   const rawEpisodeCurrent = String(raw.episode_current || '');
   const isTrailerStatus =
@@ -885,7 +915,7 @@ function mapOPhimMovie(raw: any, imageBaseUrl = OPHIM_IMAGE_BASE_URL): Movie {
     created_at: createdAt,
     updated_at: updatedAt,
     stream_url: raw?.episodes?.[0]?.server_data?.[0]?.link_embed || raw?.episodes?.[0]?.server_data?.[0]?.link_m3u8,
-    // trailer_url: String(raw.trailer_url || ''),
+    trailer_url: String(raw.trailer_url || ''),
     episodes_data: Array.isArray(raw?.episodes?.[0]?.server_data)
       ? raw.episodes[0].server_data.map((ep: any) => ({
         name: String(ep.name || ep.slug || 'Tập 1'),
@@ -933,12 +963,55 @@ async function fetchSource(path: string, baseUrl: string): Promise<OPhimResponse
   return (await response.json()) as OPhimResponse;
 }
 
-async function fetchOPhim(path: string): Promise<OPhimResponse> {
-  return fetchSource(path, OPHIM_BASE_URL);
-}
-
 async function fetchKK(path: string): Promise<OPhimResponse> {
   return fetchSource(path, KK_BASE_URL);
+}
+
+export type MoviePerson = {
+  id: number;
+  name: string;
+  character: string;
+  profile_url: string | null;
+};
+
+export async function getKKMoviePeople(slug: string): Promise<MoviePerson[]> {
+  const normalizedSlug = String(slug || '').trim();
+  if (!normalizedSlug) return [];
+
+  try {
+    const response = await fetch(`${KK_BASE_URL}/v1/api/phim/${encodeURIComponent(normalizedSlug)}/peoples`);
+    if (!response.ok) return [];
+
+    const json = await response.json() as {
+      data?: {
+        peoples?: Array<{
+          tmdb_people_id?: number | string;
+          name?: string;
+          character?: string;
+          known_for_department?: string;
+          profile_path?: string;
+        }>;
+        profile_sizes?: { w185?: string; original?: string };
+      };
+    };
+    const peoples = Array.isArray(json.data?.peoples) ? json.data.peoples : [];
+    const profileBase = json.data?.profile_sizes?.w185 || json.data?.profile_sizes?.original || '';
+
+    return peoples
+      .filter((person) => String(person.known_for_department || '').toLowerCase() === 'acting')
+      .map((person, index) => ({
+        id: Number(person.tmdb_people_id) || index + 1,
+        name: String(person.name || '').trim(),
+        character: String(person.character || '').trim(),
+        profile_url: person.profile_path
+          ? `${profileBase}${person.profile_path}`
+          : null,
+      }))
+      .filter((person) => person.name)
+      .slice(0, 20);
+  } catch {
+    return [];
+  }
 }
 
 async function fetchMovieItemsFromSource(json: OPhimResponse): Promise<Array<Record<string, unknown>>> {
@@ -952,51 +1025,14 @@ async function fetchMoviesBySource(baseUrl: string, path: string): Promise<Movie
   const items = await fetchMovieItemsFromSource(json);
 
   return items
-    .map((item) => (baseUrl === KK_BASE_URL ? mapKKMovie(item, imageBaseUrl || undefined) : mapOPhimMovie(item, imageBaseUrl || undefined)))
+    .map((item) => mapKKMovie(item, imageBaseUrl || undefined))
     .filter((movie) => !!movie.id && !!movie.slug && movie.status !== 'trailer');
-}
-
-async function fetchOPhimItemBySlugSafe(slug: string): Promise<Record<string, unknown> | null> {
-  try {
-    const json = await fetchOPhim(`/v1/api/phim/${encodeURIComponent(slug)}`);
-    return ((json?.data as any)?.item as Record<string, unknown> | undefined) || null;
-  } catch {
-    return null;
-  }
 }
 
 async function fetchKKItemBySlugSafe(slug: string): Promise<Record<string, unknown> | null> {
   try {
     const json = await fetchKK(`/v1/api/phim/${encodeURIComponent(slug)}`);
     return ((json?.data as any)?.item as Record<string, unknown> | undefined) || null;
-  } catch {
-    return null;
-  }
-}
-
-async function resolveOPhimMovieByOriginName(originName: string): Promise<Record<string, unknown> | null> {
-  const q = originName.trim();
-  if (!q) return null;
-
-  try {
-    const search = await fetchOPhim(`/v1/api/tim-kiem?keyword=${encodeURIComponent(q)}&limit=24`);
-    const items = ((search?.data as any)?.items || []) as Array<Record<string, unknown>>;
-    if (!Array.isArray(items) || items.length === 0) {
-      return null;
-    }
-
-    const target = normalizeCompareText(originName);
-    const exact = items.find((it) => {
-      const n = normalizeCompareText(it.origin_name || it.name || '');
-      return !!n && n === target;
-    }) || items.find((it) => !!it.slug);
-
-    const foundSlug = String(exact?.slug || '').trim();
-    if (!foundSlug) {
-      return null;
-    }
-
-    return fetchOPhimItemBySlugSafe(foundSlug);
   } catch {
     return null;
   }
@@ -1049,17 +1085,11 @@ function shouldMergeBySlugOrOrigin(
 
 async function fetchMergedMoviesByPath(path: string): Promise<Movie[]> {
   const sortedPath = withDefaultNewestSort(path);
-  const [ophimResult, kkResult] = await Promise.allSettled([
-    fetchMoviesBySource(OPHIM_BASE_URL, sortedPath),
-    fetchMoviesBySource(KK_BASE_URL, sortedPath),
-  ]);
-
-  const movies = [
-    ...(kkResult.status === 'fulfilled' ? kkResult.value : []),
-    ...(ophimResult.status === 'fulfilled' ? ophimResult.value : []),
-  ];
-
-  return sortMoviesNewestDesc(dedupeMovies(movies));
+  try {
+    return sortMoviesNewestDesc(dedupeMovies(await fetchMoviesBySource(KK_BASE_URL, sortedPath)));
+  } catch {
+    return [];
+  }
 }
 
 export async function getHomeMovies(): Promise<Movie[]> {
@@ -1151,7 +1181,7 @@ export async function getMoviesByGenrePaged(
   try {
     const sortParam =
       sort === 'xem-nhieu' ? '&sort_field=view&sort_type=desc' : '';
-    const json = await fetchOPhim(`/v1/api/the-loai/${genre}?page=${page}${sortParam}`);
+    const json = await fetchKK(`/v1/api/the-loai/${genre}?page=${page}${sortParam}`);
     const totalPages = parseTotalPages(json?.data as any);
     const movies = await fetchMergedMoviesByPath(`/v1/api/the-loai/${genre}?page=${page}${sortParam}`);
     return { movies, totalPages };
@@ -1193,7 +1223,7 @@ export async function getMoviesFilteredPaged(
       path = `/v1/api/danh-sach/phim-moi?${extra.join('&')}`;
     }
 
-    const json = await fetchOPhim(path);
+    const json = await fetchKK(path);
     const totalPages = parseTotalPages(json?.data as any);
     const movies = await fetchMergedMoviesByPath(path);
     return { movies, totalPages };
@@ -1316,8 +1346,8 @@ function mapNguoncSearchMovie(item: NguoncSearchMovie): Movie {
   };
 }
 
-function mapKKMovie(raw: Record<string, unknown>, imageBaseUrl = OPHIM_IMAGE_BASE_URL): Movie {
-  const movie = mapOPhimMovie(raw, imageBaseUrl);
+function mapKKMovie(raw: Record<string, unknown>, imageBaseUrl = KK_IMAGE_BASE_URL): Movie {
+  const movie = mapMovie(raw, imageBaseUrl);
 
   movie.servers = Array.isArray(movie.servers)
     ? movie.servers.map((server, index) => ({

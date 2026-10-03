@@ -17,6 +17,7 @@ import { getMovieBySlug } from '@/lib/ophim';
 import { Movie } from '@/types/movie';
 import { MovieCard } from '@/components/MovieCard';
 import { Colors } from '@/constants/colors';
+import { HT_LOCAL_MOVIES } from '@/lib/htLocalSources';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const NUM_COLUMNS = 3;
@@ -39,9 +40,11 @@ export default function HTMoviesScreen() {
           .select('movie_slug')
           .order('created_at', { ascending: false });
 
-        if (!data?.length) return;
-
-        const slugs = [...new Set(data.map((r) => r.movie_slug))];
+        const slugs = [...new Set([
+          ...(data ?? []).map((r) => r.movie_slug),
+          ...Object.keys(HT_LOCAL_MOVIES),
+        ])];
+        if (!slugs.length) return;
 
         const fetched: Movie[] = [];
         for (let i = 0; i < slugs.length; i += 5) {

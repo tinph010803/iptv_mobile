@@ -8,7 +8,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { takePlayerServers } from '@/lib/playerSession';
 import { searchTMDB } from '@/lib/tmdb';
 import { getTMDBEpisodeMeta } from '@/lib/tmdbEpisodes';
-type _SrvEp = { name: string; link_embed: string; link_m3u8: string; subs?: { name: string; url: string }[] }; type _SrvItem = { name: string; episodes: _SrvEp[] };
+type _SrvEp = { name: string; link_embed: string; link_m3u8: string; thumb_vtt?: string; thumb_vtt_content?: string; skip_intro_url?: string; subs?: { name: string; url: string }[] }; type _SrvItem = { name: string; episodes: _SrvEp[] };
 // Thêm hàm này TRƯỚC buildPlayerHtml
 function buildEmbedHtml(embedUrl: string, title: string, episode: string): string {
   return `<!DOCTYPE html>
@@ -140,6 +140,9 @@ background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 22%,transpar
 #pb-fill{background:#e50914;width:0%}
 #pb-thumb{position:absolute;top:50%;left:0%;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;background:#e50914;pointer-events:none;box-shadow:0 0 4px rgba(229,9,20,.55)}
 #prog:active #pb-thumb,#prog.drag #pb-thumb{transform:translate(-50%,-50%) scale(1.4)}
+#thumb-preview{position:absolute;left:0;bottom:28px;display:none;width:160px;height:90px;border:2px solid #fff;border-radius:4px;overflow:hidden;background:#111;transform:translateX(-50%);pointer-events:none;z-index:4}
+#thumb-preview.show{display:block}
+#thumb-preview img{position:absolute;left:0;top:0;max-width:none;display:none}
 /* Time row */
 #timerow{display:flex;align-items:center;width:100%;padding:2px 0 5px}
 #t-cur,#t-dur{font-size:12px;color:#fff;font-variant-numeric:tabular-nums;letter-spacing:.2px}
@@ -308,6 +311,7 @@ background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 22%,transpar
           <div class="pb" id="pb-buf"></div>
           <div class="pb" id="pb-fill"></div>
           <div id="pb-thumb"></div>
+              <div id="thumb-preview"><img id="thumb-preview-img" alt=""/></div>
         </div>
         <div id="timerow">
           <span id="t-cur">0:00</span><div id="t-sp"></div><span id="t-dur">0:00</span>
@@ -384,6 +388,8 @@ var v=document.getElementById('v'),
   smMain=document.getElementById('sm-main'),
   smSub=document.getElementById('sm-sub'),
   skipBtn=document.getElementById('btn-skip'),
+  thumbPreview=document.getElementById('thumb-preview'),
+  thumbPreviewImg=document.getElementById('thumb-preview-img'),
   lockBar=document.getElementById('lock-bar'),
   ratioLbl=document.getElementById('ratio-lbl'),
   spdLbl=null,qlLbl=null;
@@ -420,6 +426,7 @@ var chk='<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><pa
 var chevR='<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>';
 var backIco='<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>';
 var SERVERS=${safeServersLit},CUR_SRV=${safeInitSrv},CUR_EP=EP;
+var thumbCues=[],skipStart=0,skipEnd=15,skipTarget=90,skipLoaded=false,skipRequest=0;
 var rpanel=document.getElementById('rpanel'),
   rpServer=document.getElementById('rp-server'),
   rpEp=document.getElementById('rp-ep'),
@@ -435,6 +442,95 @@ function fmt(s){if(!s||isNaN(s))return'0:00';var h=Math.floor(s/3600),m=Math.flo
 function p(n){return n<10?'0'+n:''+n;}
 function spdLabel(s){return s+'x';}
 function curServerName(){return SERVERS[CUR_SRV]?SERVERS[CUR_SRV].name:'';}
+function currentEpisode(){
+  var eps=SERVERS[CUR_SRV]?SERVERS[CUR_SRV].episodes:[];
+  return eps.find(function(ep){return ep.name===CUR_EP;})||eps.find(function(ep){return (ep.link_m3u8||ep.link_embed)===M;})||null;
+}
+function parseVttTime(value){
+  var parts=String(value||'').trim().split(':').map(Number);
+  if(parts.length===3)return parts[0]*3600+parts[1]*60+parts[2];
+  if(parts.length===2)return parts[0]*60+parts[1];
+  return Number(parts[0])||0;
+}
+function parseThumbVtt(content){
+  var lines=String(content||'').replace(/\\r/g,'').split('\\n'),cues=[];
+  for(var i=0;i<lines.length;i++){
+    var timing=lines[i].match(/^\\s*(\\d{2}:\\d{2}:\\d{2}\\.\\d+)\\s+-->\\s+(\\d{2}:\\d{2}:\\d{2}\\.\\d+)/);
+    if(!timing)continue;
+    var image='';
+    for(var j=i+1;j<lines.length&&lines[j].trim();j++){image=lines[j].trim();break;}
+    if(image)cues.push({startTime:parseVttTime(timing[1]),endTime:parseVttTime(timing[2]),text:image});
+  }
+  return cues;
+}
+function setThumbTrack(){
+  thumbCues=[];
+  var ep=currentEpisode();
+  if(!ep||!ep.thumb_vtt)return;
+  if(ep.thumb_vtt_content)thumbCues=parseThumbVtt(ep.thumb_vtt_content);
+}
+function thumbCueAt(seconds){
+  for(var i=0;i<thumbCues.length;i++){
+    if(seconds>=thumbCues[i].startTime&&seconds<=thumbCues[i].endTime)return thumbCues[i];
+  }
+  return null;
+}
+function showThumbPreview(clientX){
+  if(!thumbCues.length||!dur)return;
+  var rect=prog.getBoundingClientRect();
+  var ratio=Math.max(0,Math.min(1,(clientX-rect.left)/rect.width));
+  var cue=thumbCueAt(ratio*dur);
+  if(!cue)return;
+  var imageUrl=String(cue.text||'').trim().split(/\\s+/)[0];
+  if(!imageUrl)return;
+  var crop=imageUrl.match(/^(.*)#xywh=(\\d+),(\\d+),(\\d+),(\\d+)$/);
+  if(crop){
+    var spriteUrl=crop[1],x=Number(crop[2]),y=Number(crop[3]),width=Number(crop[4]),height=Number(crop[5]);
+    thumbPreview.style.width=width+'px';thumbPreview.style.height=height+'px';
+    thumbPreview.style.backgroundImage='none';
+    thumbPreviewImg.style.display='block';
+    thumbPreviewImg.style.left=(-x)+'px';thumbPreviewImg.style.top=(-y)+'px';
+    thumbPreviewImg.onload=function(){
+      thumbPreviewImg.style.width=this.naturalWidth+'px';
+      thumbPreviewImg.style.height=this.naturalHeight+'px';
+    };
+    thumbPreviewImg.src=spriteUrl;
+  }else{
+    thumbPreview.style.width='160px';thumbPreview.style.height='90px';
+    thumbPreview.style.backgroundImage='none';
+    thumbPreviewImg.style.display='block';
+    thumbPreviewImg.style.width='100%';thumbPreviewImg.style.height='100%';
+    thumbPreviewImg.src=imageUrl;
+  }
+  thumbPreview.style.left=(ratio*100)+'%';
+  thumbPreview.classList.add('show');
+}
+function hideThumbPreview(){thumbPreview.classList.remove('show');}
+function parseSkipTimes(payload){
+  var item=Array.isArray(payload)?payload[0]:payload;
+  if(item&&item.data)item=Array.isArray(item.data)?item.data[0]:item.data;
+  if(item&&item.skip_intro)item=item.skip_intro;
+  if(!item||typeof item!=='object')return null;
+  var start=Number(item.start_time??item.start??item.from??item.skip_start??0);
+  var end=Number(item.end_time??item.end??item.to??item.skip_end??item.skip_time??0);
+  if(!Number.isFinite(start))start=0;
+  if(!Number.isFinite(end)||end<=start)end=Number(item.duration??item.time??0);
+  return end>start?{start:start,end:end}:null;
+}
+function applyEpisodeMetadata(){
+  var ep=currentEpisode();
+  setThumbTrack();
+  skipRequest++;
+  var requestId=skipRequest;
+  skipStart=0;skipEnd=15;skipTarget=90;skipLoaded=!ep||!ep.skip_intro_url;
+  if(!ep||!ep.skip_intro_url)return;
+  fetch(ep.skip_intro_url).then(function(r){return r.json();}).then(function(payload){
+    if(requestId!==skipRequest)return;
+    var times=parseSkipTimes(payload);
+    if(times){skipStart=times.start;skipEnd=times.end;skipTarget=times.end;}
+    skipLoaded=true;
+  }).catch(function(){if(requestId===skipRequest)skipLoaded=true;});
+}
 
 // HLS
 
@@ -473,6 +569,7 @@ function initHls(){
     v.src=M;v.play().catch(function(){});
   }
 }
+applyEpisodeMetadata();
 initHls();
 
 // Video events
@@ -487,8 +584,8 @@ v.addEventListener('timeupdate',function(){
   pbFill.style.width=pct+'%';pbThumb.style.left=pct+'%';
   tCur.textContent=fmt(v.currentTime);
   if(v.buffered.length>0)pbBuf.style.width=(v.buffered.end(v.buffered.length-1)/dur*100).toFixed(2)+'%';
-  if(!skipExpired&&v.currentTime>0&&v.currentTime<=15){skipBtn.classList.add('show');}
-  else{if(v.currentTime>15)skipExpired=true;skipBtn.classList.remove('show');}
+  if(!skipExpired&&skipLoaded&&v.currentTime>=skipStart&&v.currentTime<=skipEnd){skipBtn.classList.add('show');}
+  else{if(skipLoaded&&v.currentTime>skipEnd)skipExpired=true;skipBtn.classList.remove('show');}
 });
 v.addEventListener('loadedmetadata',function(){
   dur=v.duration;
@@ -503,7 +600,7 @@ v.addEventListener('loadedmetadata',function(){
 v.addEventListener('durationchange',function(){dur=v.duration;tDur.textContent=fmt(dur);});
 
 // Skip intro
-skipBtn.addEventListener('click',function(e){e.stopPropagation();skipExpired=true;skipBtn.classList.remove('show');v.currentTime=90;});
+skipBtn.addEventListener('click',function(e){e.stopPropagation();skipExpired=true;skipBtn.classList.remove('show');v.currentTime=skipTarget;});
 
 // Progress reporting every 10s
 setInterval(function(){
@@ -581,9 +678,11 @@ function doSeek(cx){
   tCur.textContent=fmt(ratio*(dur||0));
   if(dur)v.currentTime=ratio*dur;
 }
-prog.addEventListener('touchstart',function(e){e.stopPropagation();scrubbing=true;prog.classList.add('drag');doSeek(e.touches[0].clientX);showCtrl(true);},{passive:false});
-prog.addEventListener('touchmove',function(e){if(!scrubbing)return;e.stopPropagation();e.preventDefault();doSeek(e.touches[0].clientX);},{passive:false});
-prog.addEventListener('touchend',function(e){e.stopPropagation();scrubbing=false;prog.classList.remove('drag');showCtrl();},{passive:false});
+prog.addEventListener('touchstart',function(e){e.stopPropagation();scrubbing=true;prog.classList.add('drag');showThumbPreview(e.touches[0].clientX);doSeek(e.touches[0].clientX);showCtrl(true);},{passive:false});
+prog.addEventListener('touchmove',function(e){if(!scrubbing)return;e.stopPropagation();e.preventDefault();showThumbPreview(e.touches[0].clientX);doSeek(e.touches[0].clientX);},{passive:false});
+prog.addEventListener('touchend',function(e){e.stopPropagation();scrubbing=false;prog.classList.remove('drag');hideThumbPreview();showCtrl();},{passive:false});
+prog.addEventListener('mousemove',function(e){showThumbPreview(e.clientX);});
+prog.addEventListener('mouseleave',hideThumbPreview);
 prog.addEventListener('click',function(e){e.stopPropagation();doSeek(e.clientX);showCtrl();});
 
 // Fullscreen
@@ -726,6 +825,7 @@ function switchEp(url,epName,srvIdx,resume){
   CUR_EP=epName;
   if(srvIdx!==undefined&&srvIdx!==null)CUR_SRV=srvIdx;
   M=url;
+  applyEpisodeMetadata();
   applySubsForEp();
   resumeAt=(resume!=null&&resume>5)?resume:0;
   dur=0;
@@ -1215,6 +1315,35 @@ export default function PlayerScreen() {
     const raw = Array.isArray(servers) ? servers[0] : (servers ?? '[]');
     try { return JSON.parse(raw) as _SrvItem[]; } catch { return [] as _SrvItem[]; }
   })();
+  const thumbVttCacheRef = useRef(new Map<string, string>());
+  const thumbVttUrlsKey = Array.from(new Set(
+    safeServersData.flatMap((server) => server.episodes.map((episode) => episode.thumb_vtt).filter(Boolean) as string[])
+  )).sort().join('|');
+  const [, setThumbVttVersion] = useState(0);
+  useEffect(() => {
+    const urls = thumbVttUrlsKey ? thumbVttUrlsKey.split('|') : [];
+    const missingUrls = urls.filter((thumbUrl) => !thumbVttCacheRef.current.has(thumbUrl));
+    if (missingUrls.length === 0) return;
+    let cancelled = false;
+    Promise.all(missingUrls.map(async (thumbUrl) => {
+      try {
+        const response = await fetch(thumbUrl);
+        if (response.ok) thumbVttCacheRef.current.set(thumbUrl, await response.text());
+      } catch { }
+    })).then(() => {
+      if (!cancelled) setThumbVttVersion((version) => version + 1);
+    });
+    return () => { cancelled = true; };
+  }, [thumbVttUrlsKey]);
+  const playerServersData = safeServersData.map((server) => ({
+    ...server,
+    episodes: server.episodes.map((episode) => ({
+      ...episode,
+      thumb_vtt_content: episode.thumb_vtt
+        ? thumbVttCacheRef.current.get(episode.thumb_vtt)
+        : undefined,
+    })),
+  }));
   const safeSrvIdx = safeServersData.findIndex((s) => s.name === safeServerLabel);
   const safeSubApiUrl = Array.isArray(subApiUrl) ? subApiUrl[0] : (subApiUrl ?? '');
 
@@ -1223,7 +1352,7 @@ export default function PlayerScreen() {
     ? buildEmbedHtml(safeUrl, safeTitle, safeEpisode)
     : buildPlayerHtml(
       safeUrl, safeTitle, safeEpisode, safeInitialTime,
-      safeServersData, safeSrvIdx >= 0 ? safeSrvIdx : 0,
+      playerServersData, safeSrvIdx >= 0 ? safeSrvIdx : 0,
       safeSubApiUrl,
       backdrop || safePoster
     );
@@ -1317,13 +1446,34 @@ export default function PlayerScreen() {
     },
     [isEmbed, safeMovieId, safeMovieSlug, safeTitle, safePoster, userId]
   );
+  const getBaseUrl = (url: string) => {
+    if (url.includes('edgecontent.site')) {
+      return 'https://onflix.lat';
+    }
 
+    if (url.includes('chophim.fun')) {
+      return 'https://chophim.fun';
+    }
+
+    if (url.includes('phimapi.com')) {
+      return 'https://phimapi.com';
+    }
+
+    if (url.includes('hhpanda.st')) {
+      return 'https://hhpanda.st';
+    }
+
+    return 'https://phimapi.com'; // mặc định
+  };
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]}>
       <StatusBar hidden />
       <WebView
         ref={webViewRef}
-        source={{ html: htmlContent, baseUrl: safeUrl.includes('edgecontent.site') ? 'https://onflix.lat' : 'https://ophim1.com' }}
+        source={{
+          html: htmlContent,
+          baseUrl: getBaseUrl(safeUrl),
+        }}
         style={{ flex: 1, backgroundColor: '#000', opacity: loaded ? 1 : 0 }}
         allowsFullscreenVideo
         mediaPlaybackRequiresUserAction={false}
