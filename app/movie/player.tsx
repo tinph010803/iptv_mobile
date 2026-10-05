@@ -552,8 +552,7 @@ function initHls(){
       curQ=-1;
       v.play().catch(function(){});
     });
-    hls.on(Hls.Events.ERROR,function(ev,d){
-      subEl.textContent='HLS: '+d.type+' | '+d.details+' | '+(d.response?d.response.code:'-');
+       hls.on(Hls.Events.ERROR,function(ev,d){
       if(d.fatal){
         if(d.type===Hls.ErrorTypes.NETWORK_ERROR){
           var backup=!triedBackup?getKKBackupUrl(M):null;
@@ -856,7 +855,6 @@ function switchEp(url,epName,srvIdx,resume){
       curQ=-1;buildSmMain();v.play().catch(function(){});
     });
     hls.on(Hls.Events.ERROR,function(ev,d){
-      subEl.textContent='HLS: '+d.type+' | '+d.details+' | '+(d.response?d.response.code:'-');
       if(d.fatal){
         if(d.type===Hls.ErrorTypes.NETWORK_ERROR){
           var backup=!triedBackup?getKKBackupUrl(M):null;

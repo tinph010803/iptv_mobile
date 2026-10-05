@@ -32,8 +32,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(async ({ data, error }) => {
+      if (error) {
+        await supabase.auth.signOut({ scope: 'local' });
+        if (mounted) setState({ user: null, isLoading: false });
+        return;
+      }
       if (mounted) loadProfile(data.session?.user.id);
+    }).catch(() => {
+      if (mounted) setState({ user: null, isLoading: false });
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (mounted) loadProfile(session?.user.id);

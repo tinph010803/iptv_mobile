@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  Alert,
   TouchableOpacity,
   Image,
   TextInput,
@@ -29,12 +30,18 @@ import {
   ChevronDown,
   ChevronUp,
   MessageCircle,
+  Pencil,
+  Pin,
   RefreshCw,
   Monitor,
   Mic,
   Server,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Image as ExpoImage } from 'expo-image';
 import Svg, { Path as SvgPath } from 'react-native-svg';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { CastMember } from '@/lib/tmdb';
@@ -138,6 +145,22 @@ type PlayerEpisode = {
   subs?: { name: string; url: string }[];
 };
 type PlayerServer = { name: string; episodes: PlayerEpisode[] };
+type MovieComment = {
+  id: string;
+  movie_slug: string;
+  user_id: string;
+  parent_id: string | null;
+  content: string;
+  is_spoiler: boolean;
+  is_pinned: boolean;
+  author_name: string;
+  author_role: string;
+  author_avatar: string | null;
+  author_avatar_frame: string | null;
+  created_at: string;
+};
+type CommentVote = { comment_id: string; user_id: string; vote: 1 | -1 };
+
 export default function MovieDetailScreen() {
   const router = useRouter();
   const { id, resumeTime, resumeEpisode, resumeServer } = useLocalSearchParams<{
@@ -167,6 +190,15 @@ export default function MovieDetailScreen() {
   const [comment, setComment] = useState('');
   const [spoiler, setSpoiler] = useState(false);
   const [commentTab, setCommentTab] = useState<'Bình luận' | 'Đánh giá'>('Bình luận');
+  const [comments, setComments] = useState<MovieComment[]>([]);
+  const [commentVotes, setCommentVotes] = useState<CommentVote[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [collapsedReplies, setCollapsedReplies] = useState<Record<string, boolean>>({});
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
   const [cast, setCast] = useState<CastMember[]>([]);
   const [castLoading, setCastLoading] = useState(false);
   const [castFetched, setCastFetched] = useState(false);
@@ -195,6 +227,185 @@ export default function MovieDetailScreen() {
         if (data && data.length > 0) setHtServers(data);
       });
   }, [movie?.slug]);
+
+  const loadComments = useCallback(async () => {
+    if (!movie?.slug) return;
+    setCommentsLoading(true);
+    const { data, error } = await supabase
+      .from('comments')
+      .select('id, movie_slug, user_id, parent_id, content, is_spoiler, is_pinned, author_name, author_role, author_avatar, author_avatar_frame, created_at')
+      .eq('movie_slug', movie.slug)
+      .order('is_pinned', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (error) {
+      setCommentsLoading(false);
+      showToast(`Không thể tải bình luận: ${error.message}`);
+      return;
+    }
+    const loadedComments = (data ?? []) as MovieComment[];
+    setComments(loadedComments);
+    if (loadedComments.length === 0) {
+      setCommentVotes([]);
+    } else {
+      const { data: voteData } = await supabase
+        .from('comment_votes')
+        .select('comment_id, user_id, vote')
+        .in('comment_id', loadedComments.map((item) => item.id));
+      setCommentVotes((voteData ?? []) as CommentVote[]);
+    }
+    setCommentsLoading(false);
+  }, [movie?.slug, showToast]);
+
+  useEffect(() => {
+    loadComments();
+  }, [loadComments]);
+
+  const submitComment = useCallback(async (parentId: string | null = null) => {
+    if (!user) {
+      showToast('Vui lòng đăng nhập để bình luận.');
+      return;
+    }
+    const value = (parentId ? replyText : comment).trim();
+    if (!value) {
+      showToast('Hãy nhập nội dung bình luận.');
+      return;
+    }
+    setCommentSubmitting(true);
+    const { error } = await supabase.from('comments').insert({
+      movie_slug: movie?.slug,
+      user_id: user.id,
+      parent_id: parentId,
+      content: value,
+      is_spoiler: parentId ? false : spoiler,
+      author_name: user.displayName || user.username || user.email || 'Người dùng',
+      author_role: user.role || 'user',
+      author_avatar: user.avatar || null,
+      author_avatar_frame: user.avatarFrame || null,
+    });
+    setCommentSubmitting(false);
+    if (error) {
+      showToast(error.message);
+      return;
+    }
+    setComment('');
+    setReplyText('');
+    setReplyTo(null);
+    setSpoiler(false);
+    await loadComments();
+  }, [comment, loadComments, movie?.slug, replyText, showToast, spoiler, user]);
+
+  const updateComment = async (commentId: string) => {
+    const value = editingCommentText.trim();
+    if (!value) return showToast('Nội dung không được để trống.');
+    const { error } = await supabase.from('comments').update({ content: value }).eq('id', commentId);
+    if (error) return showToast(error.message);
+    setEditingCommentId(null);
+    setEditingCommentText('');
+    await loadComments();
+  };
+
+  const deleteComment = (commentId: string) => {
+    Alert.alert('Xóa bình luận?', 'Các phản hồi bên dưới cũng sẽ bị xóa.', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xóa',
+        style: 'destructive',
+        onPress: async () => {
+          const { error } = await supabase.from('comments').delete().eq('id', commentId);
+          if (error) return showToast(error.message);
+          await loadComments();
+        },
+      },
+    ]);
+  };
+
+  const voteComment = async (commentId: string, vote: 1 | -1) => {
+    if (!user) return showToast('Vui lòng đăng nhập để bình chọn.');
+    const currentVote = commentVotes.find((item) => item.comment_id === commentId && item.user_id === user.id)?.vote;
+    const result = currentVote === vote
+      ? await supabase.from('comment_votes').delete().match({ comment_id: commentId, user_id: user.id })
+      : await supabase.from('comment_votes').upsert({ comment_id: commentId, user_id: user.id, vote }, { onConflict: 'comment_id,user_id' });
+    if (result.error) return showToast(result.error.message);
+    await loadComments();
+  };
+
+  const toggleCommentPin = async (commentItem: MovieComment) => {
+    if (user?.role !== 'admin') return;
+    const { error } = await supabase.from('comments').update({ is_pinned: !commentItem.is_pinned }).eq('id', commentItem.id);
+    if (error) return showToast(error.message);
+    await loadComments();
+  };
+
+  const commentDepth = (commentItem: MovieComment): number => {
+    let depth = 0;
+    let parentId = commentItem.parent_id;
+    while (parentId && depth < 4) {
+      depth += 1;
+      parentId = comments.find((item) => item.id === parentId)?.parent_id ?? null;
+    }
+    return depth;
+  };
+
+  const renderCommentItem = (commentItem: MovieComment, isReply = false): React.ReactNode => {
+    const ownVote = commentVotes.find((item) => item.comment_id === commentItem.id && item.user_id === user?.id)?.vote;
+    const likes = commentVotes.filter((item) => item.comment_id === commentItem.id && item.vote === 1).length;
+    const dislikes = commentVotes.filter((item) => item.comment_id === commentItem.id && item.vote === -1).length;
+    const isOwner = commentItem.user_id === user?.id;
+    const canDelete = isOwner || user?.role === 'admin';
+    return (
+      <View key={commentItem.id} style={[styles.commentCard, isReply && styles.replyCard]}>
+        <View style={styles.commentCardHeader}>
+          <View style={styles.commentAvatarWrap}>
+            {commentItem.author_avatar ? (
+              <Image source={{ uri: commentItem.author_avatar }} style={styles.commentAvatar} />
+            ) : (
+              <View style={styles.commentAvatarFallback}>
+                <Text style={styles.commentAvatarText}>{commentItem.author_name.charAt(0).toUpperCase()}</Text>
+              </View>
+            )}
+            {commentItem.author_avatar_frame && (
+              <ExpoImage source={commentItem.author_avatar_frame} style={styles.commentAvatarFrame} contentFit="cover" cachePolicy="memory-disk" />
+            )}
+          </View>
+          <Text style={styles.commentAuthor}>{commentItem.author_name}</Text>
+          {commentItem.author_role === 'admin' && <Text style={styles.commentAdminBadge}>ADMIN</Text>}
+          {commentItem.user_id === user?.id && <Text style={styles.commentYouBadge}>Bạn</Text>}
+          {commentItem.is_pinned && <Pin size={13} color="#F5C518" fill="#F5C518" />}
+          {commentItem.is_spoiler && <Text style={styles.commentSpoiler}>SPOILER</Text>}
+          <Text style={styles.commentDate}>{new Date(commentItem.created_at).toLocaleDateString('vi-VN')}</Text>
+        </View>
+        {editingCommentId === commentItem.id ? (
+          <View>
+            <TextInput style={styles.commentEditInput} value={editingCommentText} onChangeText={setEditingCommentText} multiline maxLength={1000} />
+            <View style={styles.commentInlineActions}>
+              <TouchableOpacity onPress={() => setEditingCommentId(null)}><Text style={styles.commentActionText}>Hủy</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => updateComment(commentItem.id)}><Text style={styles.commentActionText}>Lưu</Text></TouchableOpacity>
+            </View>
+          </View>
+        ) : <Text style={styles.commentBody}>{commentItem.content}</Text>}
+        <View style={styles.commentActions}>
+          <TouchableOpacity style={styles.commentActionButton} onPress={() => voteComment(commentItem.id, 1)}>
+            <ThumbsUp size={14} color={ownVote === 1 ? Colors.primary : Colors.textSecondary} fill={ownVote === 1 ? Colors.primary : 'transparent'} />
+            <Text style={styles.commentActionCount}>{likes}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.commentActionButton} onPress={() => voteComment(commentItem.id, -1)}>
+            <ThumbsDown size={14} color={ownVote === -1 ? '#ef6b73' : Colors.textSecondary} fill={ownVote === -1 ? '#ef6b73' : 'transparent'} />
+            <Text style={styles.commentActionCount}>{dislikes}</Text>
+          </TouchableOpacity>
+          {user && <TouchableOpacity onPress={() => { setReplyTo(commentItem.id); setReplyText(''); }}><Text style={styles.commentActionText}>Trả lời</Text></TouchableOpacity>}
+          {isOwner && <TouchableOpacity onPress={() => { setEditingCommentId(commentItem.id); setEditingCommentText(commentItem.content); }}><Pencil size={14} color={Colors.textSecondary} /></TouchableOpacity>}
+          {canDelete && <TouchableOpacity onPress={() => deleteComment(commentItem.id)}><Trash2 size={14} color="#ef6b73" /></TouchableOpacity>}
+          {user?.role === 'admin' && <TouchableOpacity onPress={() => toggleCommentPin(commentItem)}><Text style={styles.commentActionText}>{commentItem.is_pinned ? 'Bỏ ghim' : 'Ghim'}</Text></TouchableOpacity>}
+        </View>
+        {replyTo === commentItem.id && (
+          <View style={styles.replyInputRow}>
+            <TextInput style={styles.replyInput} value={replyText} onChangeText={setReplyText} placeholder="Viết phản hồi..." placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={1000} />
+            <TouchableOpacity onPress={() => submitComment(commentItem.id)} disabled={commentSubmitting}><Share2 size={15} color={Colors.primary} /></TouchableOpacity>
+          </View>
+        )}
+      </View>
+    );
+  };
   // Khi quay về từ player, reset — nhưng KHÔNG reset trong lúc đang trong quá
   // trình chuyển sang player (đang await lock orientation), nếu không sẽ huỷ
   // ngang việc điều hướng đang chờ.
@@ -984,7 +1195,7 @@ export default function MovieDetailScreen() {
             <TouchableOpacity style={styles.actionItem} onPress={toggleFavorite} activeOpacity={0.7}>
               <Svg width={22} height={22} viewBox="0 0 20 20">
                 <SvgPath
-                  d="M10 18.1432L1.55692 9.82794C0.689275 8.97929 0.147406 7.85276 0.0259811 6.64517C-0.0954433 5.43759 0.211298 4.22573 0.892612 3.22133C4.99987 -2.24739 10 4.10278 10 4.10278C10 4.10278 15.0001 -2.24739 19.1074 3.22133C19.7887 4.22573 19.974 5.43759 19.8526 7.85276 19.3107 8.97929 18.4431 9.82794 10 18.1432L10 18.1432Z"
+                  d="M10 18.1432L1.55692 9.82794C0.689275 8.97929 0.147406 7.85276 0.0259811 6.64517C-0.0954433 5.43759 0.211298 4.22573 0.892612 3.22133C4.99987 -2.24739 10 4.10278 10 4.10278C10 4.10278 15.0001 -2.24739 19.1074 3.22133C19.7887 4.22573 19.974 7.85276 19.8526 7.85276 19.3107 8.97929 18.4431 9.82794 10 18.1432L10 18.1432Z"
                   fill={isFavorite ? '#e53e3e' : '#fff'}
                 />
               </Svg>
@@ -1006,7 +1217,7 @@ export default function MovieDetailScreen() {
             <TouchableOpacity style={styles.actionItem} activeOpacity={0.7}>
               <Svg width={22} height={22} viewBox="0 0 17 17">
                 <SvgPath
-                  d="M16.3628 0.651489C15.946 0.223669 15.3291 0.0642849 14.7538 0.232058L1.34002 4.13277C0.733102 4.30139 0.302926 4.78541 0.187045 5.4003C0.0686637 6.02609 0.482166 6.82049 1.02239 7.15268L5.2166 9.73051C5.6678 9.99475 6.20201 9.92848 6.55799 9.56945L11.3608 4.73676C11.6083 4.4851 12.0027 4.4851 12.2445 4.73676C12.4862 4.98003 12.4862 5.37429 12.2445 5.62595L7.43334 10.4595C7.07653 10.8177 7.00984 11.3755 7.27245 11.8084L9.83516 16.0446C10.1353 16.548 10.6522 16.8332 11.2191 16.8332C11.2858 16.8332 11.3608 16.8332 11.4275 16.8248C12.0777 16.7409 12.5946 16.2963 12.7864 15.6671L16.763 2.2705C16.9381 1.70007 16.7797 1.07931 16.3628 0.651489Z"
+                  d="M16.3628 0.651489C15.946 0.223669 15.3291 0.0642849 14.7538 0.232058L1.34002 4.13277C0.733102 4.30139 0.302926 4.78541 0.187045 5.4003C0.0686637 6.02609 0.482166 6.82049 1.02239 7.15268L5.2166 9.73051C5.6678 9.99475 6.20201 9.92848 6.55799 9.56945L11.3608 4.73676C11.6083 4.4851 12.002 4.4851 12.2445 4.73676C12.4862 4.98003 12.4862 5.37429 12.2445 5.62595L7.43334 10.4595C7.07653 10.8177 7.00984 11.3755 7.27245 11.8084L9.83516 16.0446C10.1353 16.548 10.6522 16.8332 11.2191 16.8332C11.2858 16.8332 11.3608 16.8248 11.4275 16.8248C12.0777 16.7409 12.5946 16.2963 12.7864 15.6671L16.763 2.2705C16.9381 1.70007 16.7797 1.07931 16.3628 0.651489Z"
                   fill="#fff"
                 />
               </Svg>
@@ -1355,7 +1566,8 @@ export default function MovieDetailScreen() {
             </View>
 
             <Text style={styles.loginPrompt}>
-              Vui lòng <Text style={styles.loginLink}>đăng nhập</Text> để tham gia bình luận.
+              {user ? 'Bạn đang bình luận với tư cách ' : 'Vui lòng đăng nhập để tham gia bình luận.'}
+              {user ? <Text style={styles.loginLink}>{user.displayName || user.username || user.email}</Text> : null}
             </Text>
 
             <View style={styles.inputWrap}>
@@ -1368,6 +1580,7 @@ export default function MovieDetailScreen() {
                 maxLength={1000}
                 value={comment}
                 onChangeText={setComment}
+                editable={!!user}
               />
               <View style={styles.inputFooter}>
                 <View style={styles.spoilerRow}>
@@ -1380,18 +1593,45 @@ export default function MovieDetailScreen() {
                   />
                   <Text style={styles.spoilerLabel}>Tiết lộ?</Text>
                 </View>
-                <TouchableOpacity style={styles.sendBtn} activeOpacity={0.8}>
+                <TouchableOpacity style={styles.sendBtn} activeOpacity={0.8} disabled={commentSubmitting} onPress={() => submitComment()}>
                   <Text style={styles.sendBtnText}>Gửi</Text>
                   <Share2 size={14} color={Colors.primary} />
                 </TouchableOpacity>
               </View>
             </View>
 
-            {/* Empty comments */}
-            <View style={styles.noComments}>
-              <MessageCircle size={44} color="rgba(255,255,255,0.2)" />
-              <Text style={styles.noCommentsText}>Chưa có bình luận nào</Text>
-            </View>
+            {commentsLoading ? (
+              <View style={styles.noComments}><Text style={styles.noCommentsText}>Đang tải bình luận...</Text></View>
+            ) : comments.length === 0 ? (
+              <View style={styles.noComments}>
+                <MessageCircle size={44} color="rgba(255,255,255,0.2)" />
+                <Text style={styles.noCommentsText}>Chưa có bình luận nào</Text>
+              </View>
+            ) : (
+              comments.filter((commentItem) => !commentItem.parent_id).map((parentComment) => {
+                const replies = comments.filter((commentItem) => commentItem.parent_id === parentComment.id);
+                const isCollapsed = collapsedReplies[parentComment.id] ?? false;
+                return (
+                  <View key={parentComment.id}>
+                    {renderCommentItem(parentComment)}
+                    {replies.length > 0 && (
+                      <TouchableOpacity
+                        style={styles.replyToggle}
+                        onPress={() => setCollapsedReplies((current) => ({ ...current, [parentComment.id]: !isCollapsed }))}
+                      >
+                        <View style={styles.replyToggleLine} />
+                        <Text style={styles.replyToggleText}>{isCollapsed ? 'Hiện' : 'Ẩn'} phản hồi ({replies.length})</Text>
+                      </TouchableOpacity>
+                    )}
+                    {!isCollapsed && replies.length > 0 && (
+                      <View style={styles.replyThread}>
+                        {replies.map((reply) => renderCommentItem(reply, true))}
+                      </View>
+                    )}
+                  </View>
+                );
+              })
+            )}
           </View>
 
         </View>
@@ -1812,6 +2052,37 @@ const styles = StyleSheet.create({
   spoilerLabel: { color: Colors.textSecondary, fontSize: 13 },
   sendBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   sendBtnText: { color: Colors.primary, fontSize: 14, fontWeight: '700' },
+  commentCard: {
+    backgroundColor: 'rgba(255,255,255,0.045)',
+    borderRadius: 8,
+    padding: 11,
+    marginBottom: 9,
+  },
+  replyCard: { backgroundColor: 'transparent', borderRadius: 0, marginBottom: 3, paddingVertical: 8 },
+  commentCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 6 },
+  commentAvatarWrap: { width: 32, height: 32, position: 'relative' },
+  commentAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.backgroundLight },
+  commentAvatarFrame: { position: 'absolute', width: 32, height: 32, borderRadius: 16 },
+  commentAvatarFallback: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#B91C1C', alignItems: 'center', justifyContent: 'center' },
+  commentAvatarText: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  commentAuthor: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  commentAdminBadge: { color: '#111', backgroundColor: '#F5C518', borderRadius: 3, paddingHorizontal: 4, paddingVertical: 2, fontSize: 9, fontWeight: '900' },
+  commentYouBadge: { color: Colors.primary, fontSize: 10, fontWeight: '700' },
+  commentDate: { color: 'rgba(255,255,255,0.4)', fontSize: 10, marginLeft: 'auto' },
+  commentSpoiler: { color: '#F5C518', fontSize: 9, fontWeight: '800' },
+  commentBody: { color: 'rgba(255,255,255,0.85)', fontSize: 13, lineHeight: 19 },
+  commentActions: { flexDirection: 'row', alignItems: 'center', gap: 13, marginTop: 9 },
+  commentActionButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  commentActionCount: { color: Colors.textSecondary, fontSize: 11 },
+  commentActionText: { color: Colors.textSecondary, fontSize: 11 },
+  commentEditInput: { color: '#fff', minHeight: 45, borderBottomWidth: 1, borderBottomColor: Colors.primary, fontSize: 13 },
+  commentInlineActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 14, marginTop: 7 },
+  replyInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)', marginTop: 9 },
+  replyInput: { flex: 1, color: '#fff', minHeight: 36, maxHeight: 75, fontSize: 12, textAlignVertical: 'top' },
+  replyToggle: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 17, marginBottom: 2 },
+  replyToggleLine: { width: 1, height: 18, backgroundColor: 'rgba(255,255,255,0.25)' },
+  replyToggleText: { color: '#F5C518', fontSize: 12, fontWeight: '700' },
+  replyThread: { marginLeft: 17, borderLeftWidth: 1, borderLeftColor: 'rgba(255,255,255,0.2)', paddingLeft: 11, marginBottom: 5 },
   noComments: { alignItems: 'center', gap: 10, paddingVertical: 24 },
   noCommentsText: { color: 'rgba(255,255,255,0.35)', fontSize: 13 },
   // Warning KK có quang cáo giữa phim
