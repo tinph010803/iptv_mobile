@@ -16,11 +16,12 @@ export default function RootLayout() {
   useEffect(() => {
     // Warm cache in background
     getHomeMovies().catch(() => {});
-    // Set Android navigation bar color
+    // Keep Android system bars aligned with the app theme.
     if (Platform.OS === 'android') {
       RNStatusBar.setTranslucent(true);
       RNStatusBar.setBackgroundColor('transparent');
-      NavigationBar.setStyle('inverted');
+      NavigationBar.setStyle('dark');
+      NavigationBar.setVisibilityAsync('visible').catch(() => {});
     }
   }, []);
 
