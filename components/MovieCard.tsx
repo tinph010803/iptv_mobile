@@ -192,8 +192,10 @@ const styles = StyleSheet.create({
   statusBadge: {
     position: 'absolute',
     bottom: 8,
-      flexDirection: 'row',
-      alignItems: 'center',
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
     paddingVertical: 4,
     borderRadius: 999,
   },

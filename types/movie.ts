@@ -21,8 +21,8 @@ export interface Movie {
   updated_at: string;
   stream_url?: string;
   trailer_url?: string;
-  episodes_data?: Array<{ name: string; link_embed: string; link_m3u8: string }>;
-  servers?: Array<{ name: string; episodes: Array<{ name: string; link_embed: string; link_m3u8: string }> }>;
+  episodes_data?: Array<{ name: string; link_embed: string; link_m3u8: string; episode_id?: string; filename?: string; qualities?: Array<{ name: string; url: string }>; thumb_vtt?: string; subs?: Array<{ name: string; url: string }> }>;
+  servers?: Array<{ name: string; episodes: Array<{ name: string; link_embed: string; link_m3u8: string; episode_id?: string; filename?: string; qualities?: Array<{ name: string; url: string }>; thumb_vtt?: string; subs?: Array<{ name: string; url: string }> }> }>;
   genres?: string[];
   country?: string;
   director?: string;

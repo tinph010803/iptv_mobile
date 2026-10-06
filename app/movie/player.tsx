@@ -8,7 +8,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { takePlayerServers } from '@/lib/playerSession';
 import { searchTMDB } from '@/lib/tmdb';
 import { getTMDBEpisodeMeta } from '@/lib/tmdbEpisodes';
-type _SrvEp = { name: string; link_embed: string; link_m3u8: string; thumb_vtt?: string; thumb_vtt_content?: string; skip_intro_url?: string; subs?: { name: string; url: string }[] }; type _SrvItem = { name: string; episodes: _SrvEp[] };
+type _SrvEp = { name: string; link_embed: string; link_m3u8: string; qualities?: { name: string; url: string }[]; thumb_vtt?: string; thumb_vtt_content?: string; skip_intro_url?: string; subs?: { name: string; url: string }[] }; type _SrvItem = { name: string; episodes: _SrvEp[] };
 // Thêm hàm này TRƯỚC buildPlayerHtml
 function buildEmbedHtml(embedUrl: string, title: string, episode: string): string {
   return `<!DOCTYPE html>
@@ -195,7 +195,7 @@ background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 22%,transpar
 .sp-pill{padding:6px 14px;border-radius:999px;background:rgba(255,255,255,.1);color:#fff;font-size:13px;cursor:pointer}
 .sp-pill.on{background:#fff;color:#000;font-weight:700}
 .sp-gear{margin-left:auto;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;cursor:pointer}
-.sp-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px 14px;min-width:360px}
+.sp-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px 14px;min-width:360px;max-height:calc(100vh - 190px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .sp-col{min-width:0}
 .sp-h{font-size:11px;color:rgba(255,255,255,.5);padding:4px 2px 6px}
 .sp-item{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:11px 10px;border-radius:8px;font-size:13px;color:#fff;background:rgba(255,255,255,.06);margin-bottom:6px;cursor:pointer;white-space:nowrap}
@@ -445,6 +445,16 @@ function curServerName(){return SERVERS[CUR_SRV]?SERVERS[CUR_SRV].name:'';}
 function currentEpisode(){
   var eps=SERVERS[CUR_SRV]?SERVERS[CUR_SRV].episodes:[];
   return eps.find(function(ep){return ep.name===CUR_EP;})||eps.find(function(ep){return (ep.link_m3u8||ep.link_embed)===M;})||null;
+}
+function currentExternalQualities(){
+  var ep=currentEpisode();
+  return ep&&Array.isArray(ep.qualities)?ep.qualities.filter(function(q){return q&&q.url;}):[];
+}
+function currentQualityLabel(){
+  var external=currentExternalQualities();
+  var selected=external.find(function(q){return q.url===M;});
+  if(selected)return selected.name;
+  return curQ===-1?'Auto':(quals.find(function(q){return q.id===curQ;})||{label:'Auto'}).label;
 }
 function parseVttTime(value){
   var parts=String(value||'').trim().split(':').map(Number);
@@ -826,7 +836,7 @@ function switchEp(url,epName,srvIdx,resume){
   M=url;
   applyEpisodeMetadata();
   applySubsForEp();
-  resumeAt=(resume!=null&&resume>5)?resume:0;
+  resumeAt=resume!=null?resume:0;
   dur=0;
   skipExpired=false;       
   skipBtn.classList.remove('show');
@@ -1041,8 +1051,8 @@ v.addEventListener('timeupdate',function(){
 function buildSmMain(){
   var html='<div class="sm-head">C\u00e0i \u0111\u1eb7t</div>';
    // Chất lượng
-  if(quals.length>0){
-    var qlbl=curQ===-1?'Auto':(quals.find(function(q){return q.id===curQ;})||{label:'Auto'}).label;
+  if(quals.length>0||currentExternalQualities().length>0){
+    var qlbl=currentQualityLabel();
 html += '<div class="sm-row" id="sm-row-ql"><span style="display:flex;align-items:center;gap:8px"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><polygon points="10 9 15 12 10 15 10 9" fill="currentColor"/><path d="M7 21h10"/></svg>Ch\u1ea5t l\u01b0\u1ee3ng</span><span class="sm-val"><span id="sm-ql-lbl">'+qlbl+'</span>'+chevR+'</span></div>';  }
  
   // Tốc độ phát
@@ -1188,6 +1198,28 @@ function buildSpdPage(){
   });
 }
 function buildQlPage(){
+  var external=currentExternalQualities();
+  if(external.length>0){
+    var externalHtml='<div class="sm-back" id="sm-back">'+backIco+' Quality</div>';
+    if(external.length>5)externalHtml+='<div style="display:grid;grid-template-columns:1fr 1fr;max-height:calc(100vh - 120px);overflow-y:auto;">';
+    external.forEach(function(q){
+      var on=q.url===M;
+      externalHtml+='<div class="sm-opt'+(on?' on':'')+'" data-external-url="'+q.url+'">'+q.name+(on?chk:'')+'</div>';
+    });
+    if(external.length>5)externalHtml+='</div>';
+    smMain.style.display='none';smSub.innerHTML=externalHtml;smSub.style.display='block';
+    document.getElementById('sm-back').onclick=function(){buildSmMain();};
+    smSub.querySelectorAll('[data-external-url]').forEach(function(el){
+      el.onclick=function(){
+        var url=el.getAttribute('data-external-url');
+        if(!url)return;
+        var savedTime=v.currentTime||0;
+        switchEp(url,CUR_EP,CUR_SRV,savedTime);
+        buildQlPage();
+      };
+    });
+    return;
+  }
   var html='<div class="sm-back" id="sm-back">'+backIco+' Ch\u1ea5t l\u01b0\u1ee3ng</div>';
   
   // Tính tổng số options (bao gồm Auto)

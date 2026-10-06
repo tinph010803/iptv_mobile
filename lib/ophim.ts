@@ -7,6 +7,8 @@ const NGUONC_BASE_URL = 'https://phim.nguonc.com/api';
 const NGUONC_PROXY_BASE_URL = 'https://cdn-nguonc.hailab.cloud/';
 const KK_PROXY_BASE_URL = 'https://xiaofilm.online/api/proxy_m3u8';
 const KK_PROXY_BACKUP_BASE_URL = 'https://cdn.hailab.cloud/';
+const OF_BASE_URL = 'https://api.xink.pro/api/content';
+const OF_MEDIA_BASE_URL = 'https://gota.edgecontent.site/public';
 
 const HOME_CACHE_TTL = 5 * 60 * 1000;
 const DEFAULT_SORT_FIELD = 'modified.time';
@@ -204,6 +206,54 @@ type NguoncSearchMovie = {
   quality?: string;
   language?: string;
 };
+
+type OfEpisode = {
+  episode_id?: string;
+  name?: string;
+  slug?: string;
+  filename?: string;
+  link_embed?: string;
+};
+
+type OfEpisodeServer = {
+  server_name?: string;
+  server_data?: OfEpisode[];
+};
+
+type OfMoviePayload = {
+  _id?: string;
+  name?: string;
+  slug?: string;
+  origin_name?: string;
+  content?: string;
+  type?: string;
+  status?: string;
+  thumb_url?: string;
+  poster_url?: string;
+  tmdb_id?: number | string;
+  tmdb?: { id?: number | string; type?: string };
+  trailer_url?: string;
+  year?: number | string;
+  episode_current?: number | string;
+  episode_total?: number | string;
+  quality?: string;
+  lang?: string;
+  time?: string;
+  modified?: { time?: string };
+  actor?: string | string[];
+  director?: string | string[];
+  category?: Array<{ name?: string }>;
+  country?: Array<{ name?: string }>;
+};
+
+type OfDetailResponse = {
+  status?: boolean;
+  movie?: OfMoviePayload;
+  episodes?: OfEpisodeServer[];
+};
+
+type OfQuality = { name?: string; url?: string };
+type OfExtras = { subtitles?: Array<{ name?: string; slug?: string; url?: string }>; thumb_vtt?: string };
 
 function normalizeImageUrl(url?: string, imageBaseUrl = KK_IMAGE_BASE_URL): string {
   if (!url || url.trim() === '') {
@@ -531,6 +581,155 @@ async function resolveNguoncMovieByExactSlug(slug: unknown): Promise<NguoncDetai
   return movie?.movie && nguoncSlug === normalizedSlug ? movie : null;
 }
 
+async function fetchOf(path: string): Promise<any | null> {
+  try {
+    const response = await fetch(`${OF_BASE_URL}${path}`);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchOfMovieBySlug(slug: string): Promise<OfDetailResponse | null> {
+  const json = await fetchOf(`/phim/${encodeURIComponent(slug)}`) as OfDetailResponse | null;
+  return json?.movie && Array.isArray(json.episodes) ? json : null;
+}
+
+function selectOfStreamUrl(qualities: OfQuality[]): string {
+  const usable = qualities.filter((quality) => typeof quality.url === 'string' && quality.url.trim());
+  const preferred = usable.find((quality) => /1080p/i.test(String(quality.name)))
+    || usable.find((quality) => /^auto$/i.test(String(quality.name)))
+    || usable[0];
+  return String(preferred?.url || '');
+}
+
+async function buildOfEpisode(episode: OfEpisode): Promise<{
+  name: string;
+  link_embed: string;
+  link_m3u8: string;
+  episode_id?: string;
+  filename?: string;
+  qualities?: Array<{ name: string; url: string }>;
+  thumb_vtt?: string;
+  subs?: Array<{ name: string; url: string }>;
+}> {
+  const episodeId = String(episode.episode_id || '').trim();
+  if (!episodeId) {
+    return {
+      name: String(episode.filename || episode.name || episode.slug || 'Tập 1'),
+      link_embed: '',
+      link_m3u8: '',
+    };
+  }
+
+  const [qualities, extras] = await Promise.all([
+    fetch(`${OF_MEDIA_BASE_URL}/${encodeURIComponent(episodeId)}/qualities`)
+      .then(async (response) => response.ok ? await response.json() as OfQuality[] : [])
+      .catch(() => [] as OfQuality[]),
+    fetch(`${OF_MEDIA_BASE_URL}/${encodeURIComponent(episodeId)}/extras`)
+      .then(async (response) => response.ok ? await response.json() as OfExtras : {})
+      .catch(() => ({} as OfExtras)),
+  ]);
+
+  return {
+    name: String(episode.filename || episode.name || episode.slug || 'Tập 1'),
+    link_embed: '',
+    link_m3u8: selectOfStreamUrl(Array.isArray(qualities) ? qualities : []),
+    episode_id: episodeId,
+    filename: String(episode.filename || ''),
+    qualities: Array.isArray(qualities)
+      ? qualities
+        .filter((quality) => typeof quality.url === 'string' && quality.url.trim())
+        .map((quality) => ({ name: String(quality.name || 'Auto'), url: String(quality.url) }))
+      : [],
+    thumb_vtt: typeof extras.thumb_vtt === 'string' ? extras.thumb_vtt : undefined,
+    subs: Array.isArray(extras.subtitles)
+      ? extras.subtitles
+        .filter((subtitle) => subtitle?.url)
+        .map((subtitle) => ({
+          name: String(subtitle.name || subtitle.slug || 'Subtitle'),
+          url: String(subtitle.url),
+        }))
+      : [],
+  };
+}
+
+async function buildOfServers(rawServers: OfEpisodeServer[] | undefined): Promise<Array<{
+  name: string;
+  episodes: Awaited<ReturnType<typeof buildOfEpisode>>[];
+}>> {
+  if (!Array.isArray(rawServers)) return [];
+
+  const servers = await Promise.all(rawServers.map(async (server, index) => ({
+    name: `${String(server.server_name || `Server ${index + 1}`)} [OF]`,
+    episodes: await Promise.all((Array.isArray(server.server_data) ? server.server_data : []).map(buildOfEpisode)),
+  })));
+
+  return servers.filter((server) => server.episodes.some((episode) => !!episode.link_m3u8));
+}
+
+function mapOfMovie(movie: OfMoviePayload, requestedSlug: string): Movie {
+  const episodeTotal = Math.max(toNumber(movie.episode_total, 1), 1);
+  const currentEpisode = Math.max(toNumber(movie.episode_current, 1), 1);
+  const actors = Array.isArray(movie.actor)
+    ? movie.actor.map(String).filter(Boolean)
+    : String(movie.actor || '').split(',').map((value) => value.trim()).filter(Boolean);
+  const director = Array.isArray(movie.director)
+    ? movie.director.map(String).filter(Boolean).join(', ')
+    : String(movie.director || '');
+  const now = toIsoDateString(movie.modified?.time);
+
+  return {
+    id: String(movie.slug || movie._id || requestedSlug),
+    slug: String(movie.slug || requestedSlug),
+    title: String(movie.name || 'Đang cập nhật'),
+    title_en: String(movie.origin_name || movie.name || ''),
+    description: stripHtml(String(movie.content || 'Chưa có mô tả cho phim này.')),
+    poster_url: normalizeImageUrl(movie.thumb_url || movie.poster_url),
+    thumb_url: normalizeImageUrl(movie.poster_url || movie.thumb_url),
+    imdb_rating: 0,
+    year: toNumber(movie.year, new Date().getFullYear()),
+    episodes: Math.max(episodeTotal, currentEpisode),
+    current_episode: currentEpisode,
+    duration: toNumber(movie.time, 0),
+    duration_text: String(movie.time || ''),
+    quality: String(movie.quality || 'HD'),
+    age_rating: 'T13',
+    is_series: Math.max(episodeTotal, currentEpisode) > 1,
+    status: String(movie.status || 'ongoing'),
+    is_featured: false,
+    created_at: now,
+    updated_at: now,
+    stream_url: '',
+    trailer_url: String(movie.trailer_url || ''),
+    episodes_data: [],
+    servers: [],
+    genres: (movie.category || []).map((item) => String(item.name || '')).filter(Boolean),
+    country: (movie.country || []).map((item) => String(item.name || '')).find(Boolean) || '',
+    director,
+    actors,
+    tmdb_id: Number(movie.tmdb?.id || movie.tmdb_id) || undefined,
+    tmdb_type: movie.tmdb?.type === 'tv' || movie.type === 'tv' ? 'tv' : 'movie',
+    lang: String(movie.lang || ''),
+    lang_key: [],
+    last_episodes: [],
+  };
+}
+
+async function loadOfMovieBySlug(slug: string): Promise<Movie | null> {
+  const detail = await fetchOfMovieBySlug(slug);
+  if (!detail?.movie) return null;
+
+  const movie = mapOfMovie(detail.movie, slug);
+  const servers = await buildOfServers(detail.episodes);
+  const firstEpisodes = servers[0]?.episodes || [];
+  movie.servers = servers;
+  movie.episodes_data = firstEpisodes;
+  movie.stream_url = firstEpisodes[0]?.link_m3u8 || '';
+  return movie;
+}
+
 async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promise<Movie | null> {
   const normalizedSlug = normalizeDetailCacheKey(slug);
   if (!normalizedSlug) return null;
@@ -558,13 +757,14 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
         const enrichPromise = (async () => {
           if (!kkItem?.slug) return;
 
-          const nc = await withTimeout(
-            resolveNguoncMovieByExactSlug(kkItem.slug),
-            EXTERNAL_SOURCE_TIMEOUT_MS,
-            null as NguoncDetailResponse | null,
-          );
-
-          if (!nc?.movie) return;
+          const [nc, ofMovie] = await Promise.all([
+            withTimeout(
+              resolveNguoncMovieByExactSlug(kkItem.slug),
+              EXTERNAL_SOURCE_TIMEOUT_MS,
+              null as NguoncDetailResponse | null,
+            ),
+            withTimeout(loadOfMovieBySlug(String(kkItem.slug)), EXTERNAL_SOURCE_TIMEOUT_MS * 2, null),
+          ]);
 
           const latest = getCachedMovieBySlug(normalizedSlug) ?? baseMovie;
           let enriched = latest;
@@ -577,7 +777,6 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
               const ncTotal = toNumber(nc.movie.total_episodes, 0);
               const ncCurrent = toNumber(nc.movie.current_episode, 0);
               const mergedCurrent = Math.max(ncCurrent, getCurrentEpisodeFromServers(mergedServers));
-
               enriched = {
                 ...enriched,
                 servers: mergedServers,
@@ -585,6 +784,22 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
                 stream_url: firstEpisodes[0]?.link_m3u8 || firstEpisodes[0]?.link_embed || enriched.stream_url,
                 current_episode: Math.max(mergedCurrent, enriched.current_episode, 1),
                 episodes: Math.max(ncTotal, mergedCurrent, enriched.episodes, enriched.current_episode),
+              };
+            }
+          }
+
+          if (ofMovie && shouldMergeBySlugOrOrigin(kkItem.slug, kkItem.origin_name, ofMovie.slug, ofMovie.title_en)) {
+            const ofServers = ofMovie.servers || [];
+            if (ofServers.length > 0) {
+              const mergedServers = [...(enriched.servers || []), ...ofServers];
+              const firstEpisodes = mergedServers[0]?.episodes || [];
+              enriched = {
+                ...enriched,
+                servers: mergedServers,
+                episodes_data: firstEpisodes,
+                stream_url: enriched.stream_url || ofMovie.stream_url || firstEpisodes[0]?.link_m3u8 || '',
+                current_episode: Math.max(enriched.current_episode, ofMovie.current_episode, 1),
+                episodes: Math.max(enriched.episodes, ofMovie.episodes, ofMovie.current_episode),
               };
             }
           }
@@ -599,6 +814,12 @@ async function loadMovieBySlugInternal(slug: string, bypassCache = false): Promi
       }
 
       return getCachedMovieBySlug(normalizedSlug) ?? baseMovie;
+    }
+
+    const ofMovie = await withTimeout(loadOfMovieBySlug(normalizedSlug), EXTERNAL_SOURCE_TIMEOUT_MS * 2, null);
+    if (ofMovie) {
+      cacheDetailMovie(ofMovie);
+      return ofMovie;
     }
 
     let nc: NguoncDetailResponse | null = null;
@@ -1029,6 +1250,24 @@ async function fetchMoviesBySource(baseUrl: string, path: string): Promise<Movie
     .filter((movie) => !!movie.id && !!movie.slug && movie.status !== 'trailer');
 }
 
+export async function getOfMoviesPaged(page: number = 1): Promise<{ movies: Movie[]; totalPages: number }> {
+  const json = await fetchOf(`/phim-moi-cap-nhat/page/${page}?limit=24`) as {
+    items?: OfMoviePayload[];
+    pagination?: { totalPages?: number; total_pages?: number };
+  } | null;
+  const items = Array.isArray(json?.items) ? json.items : [];
+  const movies = items
+    .map((item) => mapOfMovie(item, String(item.slug || item._id || '')))
+    .filter((movie) => !!movie.id && !!movie.slug && movie.status !== 'trailer');
+  const totalPages = Number(json?.pagination?.totalPages || json?.pagination?.total_pages || 1);
+  return { movies, totalPages: Number.isFinite(totalPages) && totalPages > 0 ? totalPages : 1 };
+}
+
+export async function getOfMoviesByPage(page: number = 1): Promise<Movie[]> {
+  const result = await getOfMoviesPaged(page);
+  return result.movies;
+}
+
 async function fetchKKItemBySlugSafe(slug: string): Promise<Record<string, unknown> | null> {
   try {
     const json = await fetchKK(`/v1/api/phim/${encodeURIComponent(slug)}`);
@@ -1102,7 +1341,11 @@ export async function getHomeMovies(): Promise<Movie[]> {
   }
 
   homePendingPromise = (async () => {
-    const data = await fetchMergedMoviesByPath('/v1/api/home');
+    const [kkMovies, ofMovies] = await Promise.all([
+      fetchMergedMoviesByPath('/v1/api/home'),
+      getOfMoviesByPage(1).catch(() => [] as Movie[]),
+    ]);
+    const data = sortMoviesNewestDesc(dedupeMovies([...kkMovies, ...ofMovies]));
     homeCache = {
       data,
       expiresAt: Date.now() + HOME_CACHE_TTL,

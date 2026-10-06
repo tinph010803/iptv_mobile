@@ -61,7 +61,7 @@ function isUuid(value: string): boolean {
 }
 
 function stripProviderTag(serverName: string): string {
-  return serverName.replace(/\s*\[(KK|NC|HT)\]\s*/gi, '').trim();
+  return serverName.replace(/\s*\[(KK|NC|HT|OF)\]\s*/gi, '').trim();
 }
 function toSlug(str: string): string {
   return str
@@ -79,9 +79,10 @@ function getYouTubeVideoId(url?: string): string | null {
   );
   return match?.[1] ?? null;
 }
-function detectProvider(serverName: string): 'OP' | 'KK' | 'NC' | 'HT' {
+function detectProvider(serverName: string): 'OP' | 'KK' | 'NC' | 'HT' | 'OF' {
   if (/\[HT\]/i.test(serverName)) return 'HT';
   if (/\[NC\]/i.test(serverName)) return 'NC';
+  if (/\[OF\]/i.test(serverName)) return 'OF';
   if (/\[KK\]/i.test(serverName)) return 'KK';
   return 'OP';
 }
@@ -133,7 +134,7 @@ type ServerMachine = {
   key: string;
   label: string;
   displayName: string;
-  provider: 'OP' | 'KK' | 'NC' | 'HT';
+  provider: 'OP' | 'KK' | 'NC' | 'HT' | 'OF';
   serverIndexes: number[];
 };
 type PlayerEpisode = {
@@ -676,7 +677,7 @@ export default function MovieDetailScreen() {
 
   // End
   const serverMachines = useMemo<ServerMachine[]>(() => {
-    const grouped = new Map<string, { provider: 'OP' | 'KK' | 'NC' | 'HT'; serverIndexes: number[] }>();
+    const grouped = new Map<string, { provider: 'OP' | 'KK' | 'NC' | 'HT' | 'OF'; serverIndexes: number[] }>();
 
     movieServers.forEach((srv, index) => {
       const provider = detectProvider(srv.name || '');
