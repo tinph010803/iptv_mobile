@@ -8,9 +8,7 @@ import {
   useState,
 } from 'react';
 import {
-  Dimensions,
   findNodeHandle,
-  FlatList,
   Platform,
   Pressable,
   ScrollView,
@@ -29,22 +27,18 @@ import * as NavigationBar from 'expo-navigation-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
 import {
-  Building2,
   Calendar,
   ChevronLeft,
   Filter,
   History,
-  MoreHorizontal,
   Play,
   Radio,
-  Search,
   SquarePlay,
   Tv,
-  X,
 } from 'lucide-react-native';
 
 import { CalendarPickerModal } from './CalendarPickerModal';
-import { MenuPopover, type MenuPopoverItem } from './MenuPopover';
+import type { MenuPopoverItem } from './MenuPopover';
 import vleagueSchedule from './livh_vleague.json';
 
 /* =========================================================
@@ -62,26 +56,13 @@ const LALIGA_LOGO =
 const BUNDESLIGA_LOGO =
   'https://assets.football-logos.cc/logos/germany/512x512/bundesliga.24d9c6f9.png';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const CARD_WIDTH = SCREEN_WIDTH * 0.82;
-const CARD_SPACING = 12;
-const SIDE_PADDING = 14;
 
 // Mỗi lần hiển thị đúng 1 tuần (Thứ 2 -> Chủ nhật), vd 07/09 -> 13/09,
 // tuần kế tiếp tự động là 14/09 -> 20/09.
 const WINDOW_DAYS = 7;
 const CALENDAR_PICK_DAYS = 60;
 
-/* =========================================================
-   CAROUSEL
-========================================================= */
-
-const MATCHES = [
-  { id: '1', image: 'https://i.ibb.co/TD8dPNDL/Vd2rk.jpg' },
-  { id: '2', image: 'https://i.ibb.co/FLh85YwR/OKqm-Q.jpg' },
-  { id: '3', image: 'https://i.ibb.co/tMMJ4HHp/ZGfw-O.jpg' },
-];
 
 /* =========================================================
    FOOTBALL-DATA.ORG
@@ -298,37 +279,7 @@ function TabPill({
   );
 }
 
-/* =========================================================
-   MATCH CARD CAROUSEL
-========================================================= */
 
-function MatchCardCarousel() {
-  const listRef = useRef<FlatList>(null);
-
-  return (
-    <FlatList
-      ref={listRef}
-      data={MATCHES}
-      keyExtractor={(item) => item.id}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      snapToInterval={CARD_WIDTH + CARD_SPACING}
-      decelerationRate="fast"
-      snapToAlignment="start"
-      contentContainerStyle={{ paddingHorizontal: SIDE_PADDING }}
-      ItemSeparatorComponent={() => <View style={{ width: CARD_SPACING }} />}
-      renderItem={({ item }) => (
-        <Pressable style={styles.card}>
-          <Image
-            source={{ uri: item.image }}
-            style={styles.cardImage}
-            contentFit="cover"
-          />
-        </Pressable>
-      )}
-    />
-  );
-}
 
 /* =========================================================
    DATE HELPERS
@@ -664,8 +615,6 @@ const MatchSection = forwardRef<
       );
 
       setFixturesByDate(grouped);
-
-   
     } catch (err) {
       console.error('Football-data error:', err);
       setFixturesByDate({});
@@ -1014,11 +963,6 @@ export function SportsHeader() {
   const [tab, setTab] = useState<FootballCompetition>('epl');
   const [showBackToToday, setShowBackToToday] = useState(false);
 
-  // Popover 2: mở từ nút "..." — Bảng xếp hạng / Truyền hình
-  const [moreMenuVisible, setMoreMenuVisible] = useState(false);
-  const [moreMenuAnchor, setMoreMenuAnchor] = useState({ top: 50, right: 44 });
-  const moreMenuBtnRef = useRef<View>(null);
-
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS === 'web') return;
@@ -1033,22 +977,6 @@ export function SportsHeader() {
     }, [])
   );
 
-  // Đo vị trí thật của nút bấm trên màn hình rồi đặt popover ngay dưới nó,
-  // thay vì đoán toạ độ cố định (toạ độ cố định dễ bị lệch do chiều cao
-  // status bar khác nhau giữa các máy).
-  function openPopoverBelow(
-    btnRef: React.RefObject<View | null>,
-    setAnchor: (anchor: { top: number; right: number }) => void,
-    setVisible: (v: boolean) => void
-  ) {
-    btnRef.current?.measureInWindow((x, y, width, height) => {
-      setAnchor({
-        top: y + height + 8,
-        right: Math.max(SCREEN_WIDTH - (x + width), 8),
-      });
-      setVisible(true);
-    });
-  }
   const scheduleMenuItems: MenuPopoverItem[] = [
     {
       key: 'truc-tiep',
@@ -1060,21 +988,6 @@ export function SportsHeader() {
       key: 'truyen-hinh',
       label: 'Truyền hình',
       icon: <Tv size={16} color="#fff" />,
-      onPress: () => router.push('/ganhthethao/tv-schedule'),
-    },
-  ];
-
-  const moreMenuItems: MenuPopoverItem[] = [
-    {
-      key: 'truc-tiep',
-      label: 'Trực tiếp',
-      icon: <Radio size={20} color="#fff" />,
-      onPress: () => router.push('/ganhthethao/standings'),
-    },
-    {
-      key: 'truyen-hinh',
-      label: 'Truyền hình',
-      icon: <Tv size={20} color="#fff" />,
       onPress: () => router.push('/ganhthethao/tv-schedule'),
     },
   ];
@@ -1092,22 +1005,16 @@ export function SportsHeader() {
           <Text style={styles.headerTitle}>Thể thao</Text>
 
           <View style={styles.headerRightGroup}>
-            <Pressable
-              ref={moreMenuBtnRef}
-              style={styles.iconBtn}
-              onPress={() =>
-                openPopoverBelow(
-                  moreMenuBtnRef,
-                  setMoreMenuAnchor,
-                  setMoreMenuVisible
-                )
-              }
-            >
-              <MoreHorizontal size={20} color="#fff" />
-            </Pressable>
-            <Pressable style={styles.iconBtn}>
-              <Search size={20} color="#fff" />
-            </Pressable>
+            {scheduleMenuItems.map((item) => (
+              <Pressable
+                key={item.key}
+                style={styles.headerAction}
+                onPress={item.onPress}
+              >
+                {item.icon}
+                <Text style={styles.headerActionText}>{item.label}</Text>
+              </Pressable>
+            ))}
           </View>
         </View>
 
@@ -1186,12 +1093,7 @@ export function SportsHeader() {
       </SafeAreaView>
 
       <ScrollView ref={scrollViewRef} showsVerticalScrollIndicator={false}>
-        {/* CAROUSEL */}
-        <View style={styles.carouselWrap}>
-          <MatchCardCarousel />
-        </View>
 
-        {/* MATCHES */}
         <MatchSection
           ref={matchSectionRef}
           scrollViewRef={scrollViewRef}
@@ -1212,22 +1114,6 @@ export function SportsHeader() {
           <Text style={styles.backToTodayText}>Quay lại hôm nay</Text>
         </Pressable>
       )}
-
-      {/* THANH CỐ ĐỊNH: Lịch đấu / Xếp hạng — luôn hiện, không chặn scroll */}
-      <View pointerEvents="box-none" style={styles.scheduleBarWrap}>
-        <View style={styles.scheduleBar}>
-          {scheduleMenuItems.map((item, index) => (
-            <Pressable
-              key={item.key}
-              style={[styles.scheduleItem, index > 0 && styles.scheduleItemDivider]}
-              onPress={item.onPress}
-            >
-              <View style={styles.scheduleIconWrap}>{item.icon}</View>
-              <Text style={styles.scheduleLabel}>{item.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
     </View>
   );
 }
@@ -1257,6 +1143,23 @@ const styles = StyleSheet.create({
   headerRightGroup: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+
+  headerAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#1C1C22',
+    marginLeft: 8,
+  },
+
+  headerActionText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
 
   headerTitle: {
@@ -1352,22 +1255,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  carouselWrap: {
-    paddingTop: 8,
-    paddingBottom: 12,
-  },
-
-  card: {
-    width: CARD_WIDTH,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#152A62',
-  },
-
-  cardImage: {
-    width: '100%',
-    aspectRatio: 375 / 220,
-  },
 
   /* =================================================
      MATCHES
@@ -1615,7 +1502,7 @@ const styles = StyleSheet.create({
 
   backToTodayBtn: {
     position: 'absolute',
-    bottom: 80,
+    bottom: 24,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
@@ -1635,53 +1522,6 @@ const styles = StyleSheet.create({
     color: '#0A1642',
     fontSize: 12,
     fontWeight: '700',
-  },
-  scheduleBarWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    zIndex: 20,
-  },
-
-  scheduleBar: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(28,28,34,0.96)',
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
-  },
-
-  scheduleItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    gap: 3,
-  },
-
-  scheduleItemDivider: {
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: 'rgba(255,255,255,0.15)',
-  },
-
-  scheduleIconWrap: {
-    width: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  scheduleLabel: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
   },
 });
 
